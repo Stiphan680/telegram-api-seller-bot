@@ -1,9 +1,8 @@
 import os
 import logging
-import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import Database
 from config import Config
 
@@ -363,14 +362,12 @@ async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id=payment['user_id'],
             username=payment['username'],
             plan=payment['plan'],
-            expiry_days=30  # Paid plans: 30 days
+            expiry_days=30
         )
         
         if api_key:
-            # Mark as verified
             payment_handler.mark_payment_verified(reference)
             
-            # Notify channel
             if notifier:
                 try:
                     await notifier.notify_new_api_key(
@@ -382,7 +379,6 @@ async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
                 except:
                     pass
             
-            # Send to admin
             await update.message.reply_text(
                 f"✅ *Payment Verified!*\n\n"
                 f"User: @{payment['username']}\n"
@@ -392,7 +388,6 @@ async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode='Markdown'
             )
             
-            # Notify user
             try:
                 await context.bot.send_message(
                     chat_id=payment['user_id'],
@@ -475,8 +470,11 @@ Pro: ₹299/month
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-async def on_startup(application):
-    """Called when bot starts"""
+async def post_init(application: Application):
+    """Called after bot is initialized - send startup notification"""
+    logger.info("✅ Bot initialization complete")
+    
+    # Send startup notification
     if notifier:
         try:
             backend_status = ai_router.get_backend_status() if ai_router else None
@@ -499,7 +497,15 @@ async def on_error(update, context):
 
 def main():
     """Start the bot"""
-    application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+    # Log startup
+    backend_status = ai_router.get_backend_status() if ai_router else {}
+    logger.info("🚀 Starting Bot...")
+    logger.info(f"🤖 Backends: {backend_status.get('available_backends', [])}")
+    logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
+    logger.info(f"💳 Payment: {'Manual' if payment_handler else 'Disabled'}")
+    
+    # Build application
+    application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     
     # Command handlers
     application.add_handler(CommandHandler("start", start))
@@ -519,17 +525,9 @@ def main():
     # Error handler
     application.add_error_handler(on_error)
     
-    # Send startup notification
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(on_startup(application))
-    
     # Start bot
-    backend_status = ai_router.get_backend_status() if ai_router else {}
-    logger.info(f"🚀 Bot started - Backends: {backend_status.get('available_backends', [])}")
-    logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
-    logger.info(f"💳 Payment: {'Manual' if payment_handler else 'Disabled'}")
-    
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("✅ Bot started successfully!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
