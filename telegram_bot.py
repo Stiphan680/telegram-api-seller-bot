@@ -55,8 +55,8 @@ if NOTIFICATIONS_AVAILABLE:
 else:
     notifier = None
 
-# Admin ID - CORRECTED TO YOUR USER ID
-ADMIN_ID = 6037553183
+# Admin ID - YOUR CORRECT ID
+ADMIN_ID = 5451167865
 DEFAULT_FREE_EXPIRY_DAYS = 7
 
 # API Plans with enhanced descriptions
