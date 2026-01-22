@@ -11,11 +11,47 @@ logger = logging.getLogger(__name__)
 
 db = Database()
 
-# API Plans
+# API Plans with Premium Features
 PLANS = {
-    'free': {'name': 'Free Plan', 'price': 0, 'description': 'Free forever'},
-    'basic': {'name': 'Basic Plan', 'price': 99, 'description': '₹99/month - Unlimited requests'},
-    'pro': {'name': 'Pro Plan', 'price': 299, 'description': '₹299/month - Priority support'}
+    'free': {
+        'name': 'Free Plan',
+        'price': 0,
+        'description': 'Free forever',
+        'features': [
+            '100 requests/hour',
+            'English language only',
+            'Basic tone (neutral)',
+            'No conversation history',
+            'Community support'
+        ]
+    },
+    'basic': {
+        'name': 'Basic Plan',
+        'price': 99,
+        'description': '₹99/month',
+        'features': [
+            'Unlimited requests',
+            '8+ language support',
+            'All tone controls',
+            'Conversation history',
+            'Text analysis (sentiment, keywords)',
+            'Email support'
+        ]
+    },
+    'pro': {
+        'name': 'Pro Plan',
+        'price': 299,
+        'description': '₹299/month',
+        'features': [
+            'Everything in Basic',
+            'Content summarization',
+            'Streaming responses',
+            'Priority support',
+            'Advanced analytics',
+            'Custom features',
+            'Dedicated support'
+        ]
+    }
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -23,33 +59,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     welcome_text = f"""
-🤖 *Welcome to API Seller Bot!* 🤖
+🤖 *Welcome to Advanced API Seller Bot!* 🤖
 
 Hello {user.first_name}! 
 
-I help you get your own AI Chatbot API key instantly.
+I help you get your own Advanced AI Chatbot API key instantly.
 
-*Features:*
-✅ Instant API key generation
-✅ Usage tracking
-✅ Multiple plans available
-✅ 24/7 API access
+*✨ Premium Features:*
+🌍 Multi-language support (8+ languages)
+💬 Tone control (professional, casual, creative, etc.)
+📚 Conversation history & context
+🔍 Text analysis & summarization
+⚡ Streaming responses
+📊 Advanced analytics
 
 *Commands:*
 /buy - Purchase API access
 /myapi - Get your API key
 /usage - Check API usage
-/help - Get help
+/features - View all features
 /plans - View all plans
-
-Click the button below to get started!
+/help - Get help
     """
     
     keyboard = [
-        [InlineKeyboardButton("🛒 Buy API Access", callback_data='buy_api')],
+        [InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')],
         [InlineKeyboardButton("📊 My API Key", callback_data='my_api')],
         [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
-        [InlineKeyboardButton("💡 View Plans", callback_data='plans')]
+        [InlineKeyboardButton("✨ View Features", callback_data='features')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -63,27 +100,33 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plans_text = """
 💳 *Choose Your Plan*
 
-*1. Free Plan* - ₹0
-   • Instant API key
+*1️⃣ Free Plan* - ₹0
+   • 100 requests/hour
+   • English language
    • Basic support
    • Perfect for testing
 
-*2. Basic Plan* - ₹99/month
+*2️⃣ Basic Plan* - ₹99/month
    • Unlimited requests
+   • 8+ language support
+   • Tone control
+   • Conversation history
+   • Text analysis
    • Email support
-   • No rate limits
 
-*3. Pro Plan* - ₹299/month
+*3️⃣ Pro Plan* - ₹299/month
    • Everything in Basic
+   • Content summarization
+   • Streaming responses
    • Priority support
-   • Custom features
+   • Advanced analytics
    • Dedicated support
 
 Select a plan below:
     """
     
     keyboard = [
-        [InlineKeyboardButton("🆓 Free Plan", callback_data='select_free')],
+        [InlineKeyboardButton("🆓 Free Plan (₹0)", callback_data='select_free')],
         [InlineKeyboardButton("💎 Basic Plan - ₹99", callback_data='select_basic')],
         [InlineKeyboardButton("⭐ Pro Plan - ₹299", callback_data='select_pro')],
         [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
@@ -109,6 +152,7 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ *You already have an API key!*
 
 Your current plan: *{existing_user['plan'].upper()}*
+Created: {existing_user['created_at'][:10]}
 
 Use /myapi to view your API key.
 Use /usage to check your usage stats.
@@ -127,23 +171,13 @@ To upgrade your plan, contact support.
         success_message = f"""
 ✅ *API Key Generated Successfully!*
 
-Your API Key:
+🔑 Your API Key:
 `{api_key}`
 
 *API Base URL:*
 `{Config.API_BASE_URL}`
 
-*Usage Example:*
-```bash
-curl -X POST {Config.API_BASE_URL}/chat \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-Key: {api_key}" \\
-  -d '{{
-    "question": "What is AI?"
-  }}'
-```
-
-*Python Example:*
+*🌟 Example - Multi-language Request (Python):*
 ```python
 import requests
 
@@ -152,17 +186,39 @@ headers = {{
     "X-API-Key": "{api_key}",
     "Content-Type": "application/json"
 }}
-data = {{"question": "What is AI?"}}
+
+data = {{
+    "question": "What is artificial intelligence?",
+    "language": "english",
+    "tone": "professional",
+    "user_id": "{user_id}",
+    "include_context": True
+}}
 
 response = requests.post(url, json=data, headers=headers)
 print(response.json())
 ```
 
-⚠️ *Keep your API key secure!*
-Don't share it publicly.
+*🌟 Supported Languages:*
+English, हिंदी, Español, Français, Deutsch, 中文, العربية, 日本語
+
+*🌟 Tone Controls:*
+neutral, professional, casual, creative, educational
+
+*🌟 Free Plan Features:*
+• 100 requests/hour
+• English language only
+• Basic tone (neutral)
+• Community support
+
+Upgrade anytime for more features!
+
+*📚 Premium Features Available:*
+Upgrade to access multi-language, tone control, conversation history, text analysis & more!
         """
         
         keyboard = [
+            [InlineKeyboardButton("✨ View Premium Features", callback_data='features')],
             [InlineKeyboardButton("📈 Check Usage", callback_data='usage')],
             [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
         ]
@@ -172,25 +228,34 @@ Don't share it publicly.
     
     else:
         # For paid plans, show payment instructions
+        plan_info = PLANS[plan]
         payment_message = f"""
-💳 *{PLANS[plan]['name']} Payment*
+💳 *{plan_info['name']} Payment*
 
-Price: *₹{PLANS[plan]['price']}*
+Price: *₹{plan_info['price']}/month*
+
+*Features:*
+"""
+        for feature in plan_info['features']:
+            payment_message += f"✅ {feature}\n"
+        
+        payment_message += f"""
 
 *Payment Instructions:*
 
-1. Send payment to:
-   UPI: `yourpayment@upi`
-   (Click to copy)
+1️⃣ Send payment to:
+   UPI: `your-upi-id@upi`
+   Phone: +91-XXXXXXXXXX
+   Reference: USER_{user_id}
 
-2. After payment, send screenshot here
+2️⃣ Send screenshot with reference number
 
-3. Your API key will be activated within 5 minutes
+3️⃣ Your API key will be activated within 5 minutes
 
 *Or contact admin:*
 @YourAdminUsername
 
-_Currently showing demo. Integrate real payment gateway for production._
+💡 _Demo mode: Integrate real payment gateway for production_
         """
         
         keyboard = [
@@ -202,7 +267,7 @@ _Currently showing demo. Integrate real payment gateway for production._
         await query.edit_message_text(payment_message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show user's API key"""
+    """Show user's API key with usage examples"""
     if update.callback_query:
         query = update.callback_query
         await query.answer()
@@ -221,7 +286,7 @@ async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 You don't have an API key yet.
 Click the button below to get one!
         """
-        keyboard = [[InlineKeyboardButton("🛒 Buy API Access", callback_data='buy_api')]]
+        keyboard = [[InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
     else:
         api_key = user['api_key']
@@ -237,19 +302,46 @@ API Key:
 *Plan:* {user['plan'].upper()}
 *Status:* {'✅ Active' if user['is_active'] else '❌ Inactive'}
 *Requests Used:* {user['requests_used']}
+*Created:* {user['created_at'][:10]}
 
-*Quick Test:*
+*🌟 Example - Text Analysis:*
 ```bash
-curl -X POST {Config.API_BASE_URL}/chat \\
+curl -X POST {Config.API_BASE_URL}/analyze \\
   -H "X-API-Key: {api_key}" \\
   -H "Content-Type: application/json" \\
-  -d '{{"question": "Hello"
-}}'
+  -d '{{
+    "text": "Your text here",
+    "type": "sentiment"
+  }}'
 ```
 
-Use /usage for detailed stats.
+*🌟 Example - Content Summary:*
+```bash
+curl -X POST {Config.API_BASE_URL}/summarize \\
+  -H "X-API-Key: {api_key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{{
+    "content": "Long text...",
+    "type": "bullet-points"
+  }}'
+```
+
+*🌟 Available Languages:*
+🇬🇧 English, 🇮🇳 Hindi, 🇪🇸 Spanish, 🇫🇷 French, 🇩🇪 German, 🇨🇳 Chinese, 🇸🇦 Arabic, 🇯🇵 Japanese
+
+*🌟 Tone Controls:*
+⚪ Neutral, 💼 Professional, 😊 Casual, 🎨 Creative, 📚 Educational
+
+*🌟 Advanced Features:*
+📊 Text Analysis
+📝 Summarization
+💬 Conversation History
+⚡ Streaming Responses
+
+📖 Use /features for complete documentation
         """
         keyboard = [
+            [InlineKeyboardButton("✨ View Features", callback_data='features')],
             [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
             [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
         ]
@@ -259,6 +351,111 @@ Use /usage for detailed stats.
         await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
     else:
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def show_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show advanced features documentation"""
+    query = update.callback_query
+    await query.answer()
+    
+    features_text = """
+✨ *Advanced Features*
+
+*1️⃣ Multi-Language Support (8+ Languages)*
+🌍 English, हिंदी, Español, Français, Deutsch, 中文, العربية, 日本語
+
+```json
+{"language": "hindi"}
+```
+
+*2️⃣ Tone Control*
+⚪ Neutral - Balanced responses
+💼 Professional - Business appropriate
+😊 Casual - Friendly tone
+🎨 Creative - Imaginative responses
+📚 Educational - Detailed explanations
+
+```json
+{"tone": "professional"}
+```
+
+*3️⃣ Conversation History & Context*
+Maintain multi-turn conversations with full context.
+
+```json
+{
+  "include_context": true,
+  "user_id": "your_user_id"
+}
+```
+
+*4️⃣ Text Analysis*
+Analyze sentiment, extract keywords, understand content.
+
+```bash
+POST /analyze
+{"text": "...", "type": "sentiment"}
+```
+
+*5️⃣ Content Summarization*
+Create concise, bullet-point, or detailed summaries.
+
+```bash
+POST /summarize
+{"content": "...", "type": "bullet-points"}
+```
+
+*6️⃣ Streaming Responses*
+Real-time response generation for better UX.
+
+```bash
+POST /chat/stream
+{"question": "..."}
+```
+
+*7️⃣ Rate Limiting*
+✅ Free: 100 requests/hour
+✅ Basic: Unlimited
+✅ Pro: Unlimited + Priority
+
+*📊 Complete Example (Python):*
+
+```python
+import requests
+
+url = "{Config.API_BASE_URL}/chat"
+headers = {{
+    "X-API-Key": "your-api-key",
+    "Content-Type": "application/json"
+}}
+
+data = {{
+    "question": "Explain quantum computing",
+    "language": "hindi",
+    "tone": "educational",
+    "user_id": "user123",
+    "include_context": True,
+    "format": "markdown"
+}}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+print(result['response'])
+print(result['language'])
+print(result['tone'])
+```
+
+*Upgrade to unlock all features!*
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("💎 Upgrade to Basic", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Upgrade to Pro", callback_data='select_pro')],
+        [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(features_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show API usage statistics"""
@@ -275,10 +472,11 @@ async def usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not user:
         message = "❌ No API key found. Use /buy to get one!"
-        keyboard = [[InlineKeyboardButton("🛒 Buy API", callback_data='buy_api')]]
+        keyboard = [[InlineKeyboardButton("🛍️ Buy API", callback_data='buy_api')]]
     else:
+        plan_info = PLANS.get(user['plan'], {})
         message = f"""
-📊 *API Usage Statistics*
+📈 *API Usage Statistics*
 
 *Plan:* {user['plan'].upper()}
 *Status:* {'✅ Active' if user['is_active'] else '❌ Inactive'}
@@ -287,10 +485,18 @@ async def usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 *API Key:* `{user['api_key'][:15]}...`
 
-{'✨ Unlimited requests available!' if user['plan'] != 'free' else '🆓 Free tier active'}
+*Plan Benefits:*
+"""
+        for feature in plan_info.get('features', []):
+            message += f"✅ {feature}\n"
+        
+        message += f"""
+
+*Status:* {'🟢 All features available!' if user['plan'] != 'free' else '🟡 Upgrade for more features'}
         """
         keyboard = [
             [InlineKeyboardButton("🔑 My API Key", callback_data='my_api')],
+            [InlineKeyboardButton("✨ Upgrade Plan", callback_data='buy_api')],
             [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
         ]
     
@@ -317,10 +523,10 @@ What would you like to do?
     """
     
     keyboard = [
-        [InlineKeyboardButton("🛒 Buy API Access", callback_data='buy_api')],
-        [InlineKeyboardButton("📊 My API Key", callback_data='my_api')],
+        [InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')],
+        [InlineKeyboardButton("🔑 My API Key", callback_data='my_api')],
         [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
-        [InlineKeyboardButton("💡 View Plans", callback_data='plans')]
+        [InlineKeyboardButton("✨ View Features", callback_data='features')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -328,45 +534,41 @@ What would you like to do?
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message"""
-    help_text = """
+    help_text = f"""
 📚 *Help & Documentation*
 
-*Available Commands:*
+*Commands:*
 /start - Start the bot
 /buy - Purchase API access
 /myapi - View your API key
 /usage - Check usage statistics
-/plans - View all available plans
-/help - Show this help message
+/features - View all features
+/help - Show this help
 
-*API Documentation:*
+*Quick Links:*
+📖 Full Documentation: {Config.API_BASE_URL}
+📈 GitHub: https://github.com/Stiphan680/telegram-api-seller-bot
+💬 Support: Contact admin
 
-*Endpoint:* `POST {Config.API_BASE_URL}/chat`
+*API Endpoints:*
+• POST /chat - Chat with AI (multi-lang, tone control, context)
+• POST /chat/stream - Streaming responses
+• GET /chat/history - View conversation history
+• POST /analyze - Text sentiment & analysis
+• POST /summarize - Content summarization
+• POST /chat/clear - Clear conversation history
+• GET /health - Status check
 
-*Headers:*
-- `Content-Type: application/json`
-- `X-API-Key: YOUR_API_KEY`
+*Premium Features:*
+🌍 8+ Languages
+💬 Tone Control
+📚 Conversation History
+🔍 Text Analysis
+📝 Summarization
+⚡ Streaming
 
-*Body:*
-```json
-{{
-  "question": "Your question here"
-}}
-```
-
-*Response:*
-```json
-{{
-  "success": true,
-  "response": "AI response here",
-  "usage": {{
-    "requests_used": 42,
-    "plan": "free"
-  }}
-}}
-```
-
-Need help? Contact @YourAdminUsername
+*Need Help?*
+Contact: @YourAdminUsername
     """
     
     await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -387,8 +589,8 @@ def main():
     application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
     application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
     application.add_handler(CallbackQueryHandler(usage_stats, pattern='^usage$'))
+    application.add_handler(CallbackQueryHandler(show_features, pattern='^features$'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
-    application.add_handler(CallbackQueryHandler(buy_api, pattern='^plans$'))
     
     # Start bot
     logger.info("Bot started...")
