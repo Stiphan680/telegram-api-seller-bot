@@ -13,7 +13,6 @@ from typing import Optional, Dict, List, Any
 from flask import Flask, request, jsonify, Response, stream_with_context
 import google.generativeai as genai
 from groq import Groq
-import anthropic
 import random
 
 class AdvancedAIBackend:
@@ -307,38 +306,16 @@ class AdvancedAIBackend:
             del self.conversations[user_id]
     
     async def analyze_text(self, text: str) -> Dict[str, Any]:
-        """
-        Analyze text for sentiment, keywords, summary
-        Claude Sonnet 4.5 style analysis
-        """
+        """Analyze text - simplified without complex parsing"""
         
-        analysis_prompt = f"""
-Analyze the following text and provide:
-1. Sentiment (positive/negative/neutral with score)
-2. Key topics (3-5 main topics)
-3. Brief summary (2-3 sentences)
-4. Key entities (people, places, organizations)
-5. Tone analysis
-
-Text: {text}
-
-Provide response in JSON format.
-"""
+        analysis_prompt = f"Analyze this text briefly: sentiment, main topics, and tone.\n\nText: {text}"
         
         try:
-            response = await self._gemini_response(analysis_prompt, 0.3, 1024)
-            
-            # Parse JSON from response
-            import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                analysis = json.loads(json_match.group())
-            else:
-                analysis = {'raw': response}
+            response = await self._gemini_response(analysis_prompt, 0.3, 512)
             
             return {
                 'success': True,
-                'analysis': analysis,
+                'analysis': response,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -349,12 +326,7 @@ Provide response in JSON format.
             }
     
     async def summarize_content(self, content: str, style: str = 'concise') -> Dict[str, Any]:
-        """
-        Summarize content in different styles
-        - concise: Brief 2-3 sentences
-        - bullet: Key points in bullets
-        - detailed: Comprehensive summary
-        """
+        """Summarize content in different styles"""
         
         style_prompts = {
             'concise': "Summarize in 2-3 clear, concise sentences:",
@@ -384,23 +356,16 @@ Provide response in JSON format.
     
     async def code_assistance(self, code: str = None, task: str = None, 
                              language: str = 'python') -> Dict[str, Any]:
-        """
-        Advanced code assistance
-        - Debug code
-        - Generate code from description
-        - Explain code
-        - Optimize code
-        """
+        """Advanced code assistance"""
         
         if code:
-            prompt = f"Analyze this {language} code and provide:\n1. Explanation\n2. Potential bugs\n3. Optimization suggestions\n4. Best practices\n\n```{language}\n{code}\n```"
+            prompt = f"Analyze this {language} code: explain, find bugs, suggest improvements.\n\n```{language}\n{code}\n```"
         elif task:
-            prompt = f"Generate clean, efficient {language} code for: {task}\n\nInclude:\n1. Code with comments\n2. Usage example\n3. Edge cases handled"
+            prompt = f"Generate clean {language} code for: {task}\n\nInclude: code with comments, usage example."
         else:
             return {'success': False, 'error': 'Provide either code or task'}
         
         try:
-            # Use Groq for faster code responses
             response = await self._groq_response('groq', prompt, 0.2, 3000)
             
             return {
@@ -417,186 +382,124 @@ Provide response in JSON format.
             }
 
 
-# Flask App for API
+# Flask App
 app = Flask(__name__)
 ai_backend = AdvancedAIBackend()
 
 @app.route('/', methods=['GET'])
 def home():
-    """API information"""
     return jsonify({
         'name': 'Advanced AI API',
         'version': '2.0',
-        'features': [
-            'Claude Sonnet 4.5 level capabilities',
-            'Multi-model architecture (Gemini + Groq)',
-            'Conversation history & context',
-            'Multi-language support (8+ languages)',
-            'Tone control (7 modes)',
-            'Text analysis & summarization',
-            'Code assistance & debugging',
-            'Streaming responses',
-            'Ultra-fast responses (<1s)',
-            '100% FREE to use'
-        ],
-        'models': {
-            'primary': 'Gemini 2.0 Flash (1M context)',
-            'fast': 'Groq Llama 3.3 70B (Ultra fast)',
-            'backup': 'Mixtral 8x7B'
-        },
-        'endpoints': {
-            '/chat': 'POST - Main chat endpoint',
-            '/stream': 'POST - Streaming chat',
-            '/analyze': 'POST - Text analysis',
-            '/summarize': 'POST - Content summarization',
-            '/code': 'POST - Code assistance',
-            '/clear': 'POST - Clear conversation history'
-        }
+        'status': 'active',
+        'models': ['Gemini 2.0 Flash', 'Groq Llama 3.3', 'Mixtral 8x7B'],
+        'features': ['Multi-language', 'Conversation context', 'Code assistance', 'Streaming', '100% FREE']
     })
 
 @app.route('/chat', methods=['POST'])
 async def chat():
-    """Main chat endpoint"""
     try:
         data = request.json
-        
         question = data.get('question', '')
         if not question:
             return jsonify({'success': False, 'error': 'Question required'}), 400
         
-        # Advanced parameters
-        user_id = data.get('user_id', 'anonymous')
-        language = data.get('language', 'english')
-        tone = data.get('tone', 'default')
-        include_context = data.get('include_context', False)
-        max_tokens = data.get('max_tokens', 4096)
-        temperature = data.get('temperature', 0.7)
-        
-        # Get response
         response = await ai_backend.get_response(
             question=question,
-            user_id=user_id,
-            language=language,
-            tone=tone,
-            include_context=include_context,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=False
+            user_id=data.get('user_id', 'anonymous'),
+            language=data.get('language', 'english'),
+            tone=data.get('tone', 'default'),
+            include_context=data.get('include_context', False),
+            max_tokens=data.get('max_tokens', 4096),
+            temperature=data.get('temperature', 0.7)
         )
         
         return jsonify(response)
-        
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/stream', methods=['POST'])
 async def stream_chat():
-    """Streaming chat endpoint"""
     try:
         data = request.json
         question = data.get('question', '')
-        
         if not question:
             return jsonify({'error': 'Question required'}), 400
         
-        user_id = data.get('user_id', 'anonymous')
-        language = data.get('language', 'english')
-        tone = data.get('tone', 'default')
-        temperature = data.get('temperature', 0.7)
-        max_tokens = data.get('max_tokens', 4096)
+        model = ai_backend._select_best_model(question, data.get('tone', 'default'))
+        prompt = ai_backend._build_enhanced_prompt(
+            question, 
+            data.get('tone', 'default'), 
+            data.get('language', 'english'), 
+            []
+        )
         
-        # Select model
-        model = ai_backend._select_best_model(question, tone)
-        prompt = ai_backend._build_enhanced_prompt(question, tone, language, [])
-        
-        # Stream response
         return Response(
             stream_with_context(
-                ai_backend._stream_response(model, prompt, temperature, max_tokens)
+                ai_backend._stream_response(
+                    model, prompt, 
+                    data.get('temperature', 0.7), 
+                    data.get('max_tokens', 4096)
+                )
             ),
             mimetype='text/event-stream'
         )
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/analyze', methods=['POST'])
 async def analyze():
-    """Text analysis endpoint"""
     try:
-        data = request.json
-        text = data.get('text', '')
-        
+        text = request.json.get('text', '')
         if not text:
             return jsonify({'error': 'Text required'}), 400
-        
         result = await ai_backend.analyze_text(text)
         return jsonify(result)
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/summarize', methods=['POST'])
 async def summarize():
-    """Content summarization endpoint"""
     try:
-        data = request.json
-        content = data.get('content', '')
-        style = data.get('style', 'concise')
-        
+        content = request.json.get('content', '')
         if not content:
             return jsonify({'error': 'Content required'}), 400
-        
-        result = await ai_backend.summarize_content(content, style)
+        result = await ai_backend.summarize_content(
+            content, 
+            request.json.get('style', 'concise')
+        )
         return jsonify(result)
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/code', methods=['POST'])
 async def code_assist():
-    """Code assistance endpoint"""
     try:
-        data = request.json
-        code = data.get('code')
-        task = data.get('task')
-        language = data.get('language', 'python')
-        
-        result = await ai_backend.code_assistance(code, task, language)
+        result = await ai_backend.code_assistance(
+            request.json.get('code'),
+            request.json.get('task'),
+            request.json.get('language', 'python')
+        )
         return jsonify(result)
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/clear', methods=['POST'])
 def clear_history():
-    """Clear conversation history"""
     try:
-        data = request.json
-        user_id = data.get('user_id')
-        
+        user_id = request.json.get('user_id')
         if not user_id:
             return jsonify({'error': 'user_id required'}), 400
-        
         ai_backend.clear_conversation(user_id)
-        return jsonify({
-            'success': True,
-            'message': 'Conversation history cleared'
-        })
-        
+        return jsonify({'success': True, 'message': 'Conversation cleared'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check"""
     return jsonify({
         'status': 'healthy',
-        'models_available': ['gemini', 'groq', 'mixtral'],
-        'features_active': True,
+        'models': ['gemini', 'groq', 'mixtral'],
         'version': '2.0'
     })
 
