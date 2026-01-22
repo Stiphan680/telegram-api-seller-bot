@@ -1,8 +1,10 @@
 import os
 import logging
 from datetime import datetime
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from database import Database
 from config import Config
 
@@ -55,11 +57,52 @@ if NOTIFICATIONS_AVAILABLE:
 else:
     notifier = None
 
-# Admin ID - YOUR CORRECT ID
+# Admin ID
 ADMIN_ID = 5451167865
 DEFAULT_FREE_EXPIRY_DAYS = 7
 
-# API Plans with enhanced descriptions
+# Health Check Server for Render FREE tier
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        
+        stats = db.get_stats()
+        status_html = f"""
+        <html>
+        <head><title>🤖 API Seller Bot Status</title></head>
+        <body style="font-family: Arial; padding: 20px; background: #1a1a1a; color: #fff;">
+            <h1>🤖 Telegram Bot - Active</h1>
+            <p><strong>Status:</strong> ✅ Running</p>
+            <p><strong>Admin ID:</strong> {ADMIN_ID}</p>
+            <p><strong>AI Router:</strong> {'✅ Connected' if ai_router else '❌ Disabled'}</p>
+            <p><strong>Notifications:</strong> {'✅ Enabled' if notifier else '❌ Disabled'}</p>
+            <p><strong>Payments:</strong> {'✅ Manual' if payment_handler else '❌ Disabled'}</p>
+            <hr>
+            <h2>📊 Statistics</h2>
+            <p>Total Users: {stats.get('total_users', 0)}</p>
+            <p>Active API Keys: {stats.get('active_keys', 0)}</p>
+            <p>Gift Cards: {stats.get('active_gifts', 0)} active / {stats.get('total_gifts', 0)} total</p>
+            <p>Total Requests: {stats.get('total_requests', 0)}</p>
+            <hr>
+            <small>Render Free Tier - Health Check Endpoint</small>
+        </body>
+        </html>
+        """
+        self.wfile.write(status_html.encode())
+    
+    def log_message(self, format, *args):
+        pass  # Suppress logs
+
+def run_health_server():
+    """Run health check HTTP server on port 10000 for Render"""
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"🌐 Health check server running on port {port}")
+    server.serve_forever()
+
+# API Plans
 PLANS = {
     'free': {
         'name': 'Free Trial',
@@ -149,21 +192,36 @@ Welcome back, *{user.first_name}*! 🚀
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*🛠️ Quick Admin Actions:*
+*🛠️ Admin Commands:*
 
+*Gift Cards:*
+• `/creategift <count> <days> <plan>` - Bulk create
+• `/giftcards` - View all gift cards
+• `/deletegift <code>` - Delete gift card
+
+*API Management:*
+• `/allkeys` - View all API keys
+• `/deletekey <api_key>` - Delete any key
+
+*Payments:*
 • `/payments` - View pending payments
-• `/verify` - Verify user payment
-• `/backend` - Check AI system status
-• `/stats` - View bot statistics
+• `/verify <ref>` - Verify payment
+
+*System:*
+• `/stats` - Bot statistics
+• `/backend` - AI status
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📊 System is running smoothly!
         """
         keyboard = [
-            [InlineKeyboardButton("💳 Pending Payments", callback_data='admin_payments')],
-            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api'),
-             InlineKeyboardButton("🤖 Backend Status", callback_data='check_backend')]
+            [InlineKeyboardButton("🎁 Gift Cards", callback_data='admin_gifts'),
+             InlineKeyboardButton("🔑 All Keys", callback_data='admin_allkeys')],
+            [InlineKeyboardButton("💳 Payments", callback_data='admin_payments'),
+             InlineKeyboardButton("📊 Stats", callback_data='admin_stats')],
+            [InlineKeyboardButton("📊 My Keys", callback_data='my_api'),
+             InlineKeyboardButton("🤖 Backend", callback_data='check_backend')]
         ]
     else:
         welcome_text = f"""
@@ -195,6 +253,7 @@ Get instant access to powerful AI capabilities.
 
 • `/buy` - Browse pricing plans
 • `/myapi` - View your API keys
+• `/redeem <code>` - Redeem gift card
 • `/payment` - Check payment status
 • `/help` - Get help & support
 
@@ -211,6 +270,357 @@ Get instant access to powerful AI capabilities.
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ============= GIFT CARD COMMANDS =============
+
+async def create_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin creates bulk gift cards: /creategift <count> <days> <plan>"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "❌ *Usage:*\n\n`/creategift <count> <days> <plan>`\n\n*Examples:*\n"
+            "`/creategift 5 7 free` - 5 cards, 7 days, FREE\n"
+            "`/creategift 10 30 basic` - 10 cards, 30 days, BASIC\n"
+            "`/creategift 3 90 pro` - 3 cards, 90 days, PRO\n"
+            "`/creategift 1 0 pro` - 1 card, PERMANENT, PRO",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        count = int(context.args[0])
+        days = int(context.args[1])
+        plan = context.args[2].lower()
+        
+        if plan not in ['free', 'basic', 'pro']:
+            await update.message.reply_text("❌ Plan must be: free, basic, or pro")
+            return
+        
+        if count < 1 or count > 100:
+            await update.message.reply_text("❌ Count must be between 1 and 100")
+            return
+        
+        # Create gift cards
+        codes = []
+        for i in range(count):
+            code = db.create_gift_card(
+                plan=plan,
+                max_uses=1,  # Single use per card
+                card_expiry_days=None,  # No card expiry
+                api_expiry_days=days if days > 0 else None,  # 0 = permanent
+                created_by=update.effective_user.id,
+                note=f"Bulk created by admin"
+            )
+            if code:
+                codes.append(code)
+        
+        # Format response
+        expiry_text = "PERMANENT" if days == 0 else f"{days} days"
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ✅ *GIFT CARDS CREATED*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*Created:* {len(codes)} cards
+*Plan:* {plan.upper()}
+*API Validity:* {expiry_text}
+*Single Use:* Yes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Gift Codes:*
+
+"""
+        for i, code in enumerate(codes, 1):
+            message += f"{i}. `{code}`\n"
+        
+        message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        message += "💡 *Share these codes with users!*\n"
+        message += "Users can redeem with: `/redeem <code>`"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+    except ValueError:
+        await update.message.reply_text("❌ Invalid format! Count and days must be numbers.")
+    except Exception as e:
+        logger.error(f"Error creating gift cards: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+async def list_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views all gift cards"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    gifts = db.get_all_gift_cards()
+    
+    if not gifts:
+        await update.message.reply_text("❌ No gift cards found.")
+        return
+    
+    active_gifts = [g for g in gifts if g.get('is_active', False)]
+    used_gifts = [g for g in gifts if g.get('used_count', 0) >= g.get('max_uses', 1)]
+    
+    message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🎁 *GIFT CARDS OVERVIEW*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*Total:* {len(gifts)} cards
+*Active:* {len(active_gifts)} available
+*Redeemed:* {len(used_gifts)} fully used
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Active Gift Cards:*
+
+"""
+    
+    for gift in active_gifts[:20]:  # Show first 20
+        plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(gift.get('plan'), "❓")
+        used = gift.get('used_count', 0)
+        max_uses = gift.get('max_uses', 1)
+        api_days = gift.get('api_expiry_days')
+        expiry_text = "PERMANENT" if api_days is None else f"{api_days}d"
+        
+        message += f"{plan_emoji} `{gift['code']}`\n"
+        message += f"   Plan: {gift['plan'].upper()} | Validity: {expiry_text}\n"
+        message += f"   Used: {used}/{max_uses}\n\n"
+    
+    if len(active_gifts) > 20:
+        message += f"\n_...and {len(active_gifts) - 20} more active cards_\n"
+    
+    message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    message += "💡 Use `/deletegift <code>` to remove a card"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def delete_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin deletes a gift card: /deletegift GIFT-XXXX-XXXX-XXXX"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if not context.args:
+        await update.message.reply_text(
+            "❌ *Usage:*\n\n`/deletegift GIFT-XXXX-XXXX-XXXX`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    code = context.args[0].upper()
+    
+    # Check if exists
+    gift = db.get_gift_card(code)
+    if not gift:
+        await update.message.reply_text(f"❌ Gift card `{code}` not found.", parse_mode='Markdown')
+        return
+    
+    # Delete
+    success = db.delete_gift_card(code)
+    
+    if success:
+        await update.message.reply_text(
+            f"✅ *Gift Card Deleted*\n\nCode: `{code}`\nPlan: {gift['plan'].upper()}",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text("❌ Failed to delete gift card.")
+
+async def redeem_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User redeems a gift card: /redeem GIFT-XXXX-XXXX-XXXX"""
+    user_id = update.effective_user.id
+    username = update.effective_user.username or update.effective_user.first_name
+    
+    if not context.args:
+        await update.message.reply_text(
+            "❌ *Usage:*\n\n`/redeem GIFT-XXXX-XXXX-XXXX`\n\n"
+            "Enter your gift card code to redeem.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    code = context.args[0].upper()
+    
+    result = db.redeem_gift_card(code, user_id, username)
+    
+    if result['success']:
+        expiry_text = "PERMANENT" if result['expiry_days'] is None else f"{result['expiry_days']} days"
+        
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ✅ *GIFT CARD REDEEMED!*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Congratulations! Your API key is ready.
+
+*Your API Key:*
+`{result['api_key']}`
+
+*Plan:* {result['plan'].upper()}
+*Validity:* {expiry_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💎 *You now have access to:*
+• Claude 3.5 Sonnet AI
+• 200K+ token context
+• Advanced reasoning
+• Multi-language support
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 Use `/myapi` to view all your keys!
+        """
+        
+        # Notify admin
+        if notifier:
+            try:
+                await notifier.notify_new_api_key(
+                    username=username,
+                    user_id=user_id,
+                    plan=result['plan'],
+                    backend=f"Gift: {code}"
+                )
+            except:
+                pass
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(f"❌ *Error:* {result['error']}", parse_mode='Markdown')
+
+# ============= API KEY MANAGEMENT =============
+
+async def view_all_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views ALL API keys"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    keys = db.get_all_api_keys()
+    
+    if not keys:
+        await update.message.reply_text("❌ No API keys found.")
+        return
+    
+    active_keys = [k for k in keys if k.get('is_active', False)]
+    
+    message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🔑 *ALL API KEYS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*Total:* {len(keys)} keys
+*Active:* {len(active_keys)} keys
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Recent Active Keys:*
+
+"""
+    
+    for key in active_keys[:15]:  # Show first 15
+        plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+        username = key.get('username', 'Unknown')
+        user_id = key.get('telegram_id')
+        expiry_info = format_expiry(key.get('expiry_date'))
+        requests = key.get('requests_used', 0)
+        
+        message += f"{plan_emoji} @{username} (ID: {user_id})\n"
+        message += f"   `{key['api_key'][:35]}...`\n"
+        message += f"   {expiry_info} | {requests} requests\n\n"
+    
+    if len(active_keys) > 15:
+        message += f"\n_...and {len(active_keys) - 15} more active keys_\n"
+    
+    message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    message += "💡 Use `/deletekey <api_key>` to remove a key"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def delete_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin deletes an API key: /deletekey sk-..."""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if not context.args:
+        await update.message.reply_text(
+            "❌ *Usage:*\n\n`/deletekey sk-...`\n\nProvide the full API key.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    api_key = context.args[0]
+    
+    # Get key info first
+    key = db.validate_api_key(api_key)
+    if not key:
+        await update.message.reply_text("❌ API key not found or already deleted.")
+        return
+    
+    # Delete
+    success = db.delete_api_key(api_key)
+    
+    if success:
+        username = key.get('username', 'Unknown')
+        plan = key.get('plan', 'unknown')
+        
+        await update.message.reply_text(
+            f"✅ *API Key Deleted*\n\nUser: @{username}\nPlan: {plan.upper()}\nKey: `{api_key[:35]}...`",
+            parse_mode='Markdown'
+        )
+        
+        # Notify user
+        try:
+            await context.bot.send_message(
+                chat_id=key['telegram_id'],
+                text=f"⚠️ Your {plan.upper()} API key has been deactivated by admin.\n\nContact @Anonononononon for support."
+            )
+        except:
+            pass
+    else:
+        await update.message.reply_text("❌ Failed to delete API key.")
+
+# ============= STATS =============
+
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views bot statistics"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    stats = db.get_stats()
+    
+    message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  📊 *BOT STATISTICS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*👥 Users:*
+Total Users: {stats.get('total_users', 0)}
+
+*🔑 API Keys:*
+Total Keys: {stats.get('total_keys', 0)}
+Active Keys: {stats.get('active_keys', 0)}
+Total Requests: {stats.get('total_requests', 0):,}
+
+*🎁 Gift Cards:*
+Total Cards: {stats.get('total_gifts', 0)}
+Active Cards: {stats.get('active_gifts', 0)}
+Total Redemptions: {stats.get('total_redemptions', 0)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ System operational!
+    """
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+# ============= EXISTING FUNCTIONS (keeping same) =============
 
 async def check_backend_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query if update.callback_query else None
@@ -280,9 +690,6 @@ async def check_backend_status(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
     else:
         await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-# Rest of the code remains the same...
-# (keeping the rest of functions exactly as they were)
 
 async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -365,7 +772,6 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key. Please try again or contact support.", parse_mode='Markdown')
             return
         
-        # Test backend
         backend_used = 'Claude 3.5 Sonnet'
         if ai_router:
             try:
@@ -377,7 +783,6 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Backend test error: {e}")
         
-        # Send notification
         if notifier:
             try:
                 await notifier.notify_new_api_key(
@@ -405,21 +810,6 @@ Congratulations! Your API key is ready.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*📚 Quick Start Example:*
-
-```python
-import requests
-
-url = "YOUR_API_ENDPOINT/chat"
-headers = {{"X-API-Key": "{api_key}"}}
-data = {{"question": "Hello AI!"}}
-
-response = requests.post(url, json=data, headers=headers)
-print(response.json())
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 💎 *You now have access to:*
 • Claude 3.5 Sonnet AI
 • 200K+ token context
@@ -440,7 +830,6 @@ print(response.json())
         await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
     
     else:
-        # Show manual payment instructions for paid plans
         logger.info(f"Showing payment instructions for {plan} plan")
         
         if payment_handler:
@@ -452,7 +841,6 @@ print(response.json())
                     amount=PLANS[plan]['price']
                 )
                 
-                # Use plain text (no markdown) to avoid parsing errors
                 payment_msg = payment_request['instructions']
                 
                 keyboard = [
@@ -461,7 +849,6 @@ print(response.json())
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
-                # Send without parse_mode to avoid markdown errors
                 await query.edit_message_text(payment_msg, reply_markup=reply_markup)
                 logger.info(f"Payment instructions sent successfully for {plan}")
                 
@@ -503,6 +890,7 @@ async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - Start the bot
 • `/buy` - Browse pricing plans
 • `/myapi` - View your API keys
+• `/redeem <code>` - Redeem gift card
 • `/payment` - Check payment status
 • `/help` - Get help and support
 
@@ -541,7 +929,6 @@ Contact: @Anonononononon
     await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User checks their payment status"""
     user_id = update.effective_user.id
     
     if payment_handler:
@@ -551,7 +938,6 @@ async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ Payment system not available")
 
 async def admin_view_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin views all pending payments"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only!")
         return
@@ -563,7 +949,6 @@ async def admin_view_payments(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("❌ Payment system not available")
 
 async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin verifies a payment: /verify USER_123_BASIC"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only!")
         return
@@ -584,7 +969,6 @@ async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text(f"❌ *Payment not found!*\n\nReference: `{reference}`", parse_mode='Markdown')
             return
         
-        # Create API key
         api_key = db.create_api_key(
             user_id=payment['user_id'],
             username=payment['username'],
@@ -729,9 +1113,12 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 What would you like to do?
         """
         keyboard = [
-            [InlineKeyboardButton("💳 Pending Payments", callback_data='admin_payments')],
-            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api'),
-             InlineKeyboardButton("🤖 Backend Status", callback_data='check_backend')]
+            [InlineKeyboardButton("🎁 Gift Cards", callback_data='admin_gifts'),
+             InlineKeyboardButton("🔑 All Keys", callback_data='admin_allkeys')],
+            [InlineKeyboardButton("💳 Payments", callback_data='admin_payments'),
+             InlineKeyboardButton("📊 Stats", callback_data='admin_stats')],
+            [InlineKeyboardButton("📊 My Keys", callback_data='my_api'),
+             InlineKeyboardButton("🤖 Backend", callback_data='check_backend')]
         ]
     else:
         menu_text = f"""
@@ -762,6 +1149,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - Start bot
 • `/buy` - Browse plans
 • `/myapi` - View keys
+• `/redeem <code>` - Redeem gift
 • `/payment` - Payment status
 • `/help` - Get help
 
@@ -782,11 +1170,32 @@ Response time: 2-4 hours
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
+# Callback handlers for admin buttons
+async def admin_gifts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Convert to command-style call
+    update.message = update.callback_query.message
+    await list_gift_cards(update, context)
+
+async def admin_allkeys_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    update.message = update.callback_query.message
+    await view_all_keys(update, context)
+
+async def admin_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    update.message = update.callback_query.message
+    await show_stats(update, context)
+
 async def post_init(application: Application):
-    """Called after bot is initialized - send startup notification"""
     logger.info("✅ Bot initialization complete")
     
-    # Send startup notification
     if notifier:
         try:
             backend_status = ai_router.get_backend_status() if ai_router else None
@@ -796,7 +1205,6 @@ async def post_init(application: Application):
             logger.error(f"❌ Startup notification failed: {e}")
 
 async def on_error(update, context):
-    """Handle errors"""
     logger.error(f"Update {update} caused error {context.error}")
     if notifier:
         try:
@@ -808,15 +1216,17 @@ async def on_error(update, context):
             pass
 
 def main():
-    """Start the bot"""
-    # Log startup
+    # Start health check server in background
+    health_thread = Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    logger.info("🌐 Health check server started")
+    
     backend_status = ai_router.get_backend_status() if ai_router else {}
     logger.info("🚀 Starting Bot...")
     logger.info(f"🤖 Backends: {backend_status.get('available_backends', [])}")
     logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
     logger.info(f"💳 Payment: {'Manual' if payment_handler else 'Disabled'}")
     
-    # Build application
     application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
     
     # Command handlers
@@ -828,6 +1238,17 @@ def main():
     application.add_handler(CommandHandler("verify", admin_verify_payment))
     application.add_handler(CommandHandler("help", help_command))
     
+    # Gift card commands
+    application.add_handler(CommandHandler("creategift", create_gift_cards))
+    application.add_handler(CommandHandler("giftcards", list_gift_cards))
+    application.add_handler(CommandHandler("deletegift", delete_gift_card))
+    application.add_handler(CommandHandler("redeem", redeem_gift_card))
+    
+    # API management commands
+    application.add_handler(CommandHandler("allkeys", view_all_keys))
+    application.add_handler(CommandHandler("deletekey", delete_api_key))
+    application.add_handler(CommandHandler("stats", show_stats))
+    
     # Callback handlers
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
     application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
@@ -835,11 +1256,12 @@ def main():
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
     application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
     application.add_handler(CallbackQueryHandler(check_backend_status, pattern='^check_backend$'))
+    application.add_handler(CallbackQueryHandler(admin_gifts_callback, pattern='^admin_gifts$'))
+    application.add_handler(CallbackQueryHandler(admin_allkeys_callback, pattern='^admin_allkeys$'))
+    application.add_handler(CallbackQueryHandler(admin_stats_callback, pattern='^admin_stats$'))
     
-    # Error handler
     application.add_error_handler(on_error)
     
-    # Start bot
     logger.info("✅ Bot started successfully!")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
