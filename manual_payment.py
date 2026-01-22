@@ -17,9 +17,6 @@ class ManualPaymentHandler:
     def __init__(self):
         # Your payment details - Updated with Aman4380@kphdfc
         self.upi_id = os.getenv('UPI_ID', 'Aman4380@kphdfc')
-        self.phone = os.getenv('PAYMENT_PHONE', '+91-9876543210')
-        self.bank_name = os.getenv('BANK_NAME', 'Kotak Mahindra Bank')
-        self.account_holder = os.getenv('ACCOUNT_HOLDER', 'Aman')
         self.admin_username = os.getenv('ADMIN_USERNAME', '@YourAdminHandle')
         
         # Track pending payments
@@ -77,17 +74,17 @@ class ManualPaymentHandler:
         """
         
         instructions = f"""
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  💳 *PAYMENT INSTRUCTIONS*  ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 🏷️ *Plan:* {plan.upper()}
 💵 *Amount:* ₹{amount}
 🎯 *Reference:* `{reference}`
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📱 *METHOD 1: UPI Payment (Instant)*
+📱 *UPI PAYMENT METHOD*
 
 🔹 Open PhonePe/GPay/Paytm
 🔹 Scan QR or pay to UPI ID
@@ -97,24 +94,7 @@ class ManualPaymentHandler:
 ✅ Amount: ₹{amount}
 ✅ Add Note: `{reference}`
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📞 *METHOD 2: Phone Payment*
-
-Send money directly to:
-`{self.phone}`
-
-via any UPI app
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🏦 *METHOD 3: Bank Transfer*
-
-Bank: {self.bank_name}
-A/C Holder: {self.account_holder}
-(Contact admin for A/C number)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ *IMPORTANT STEPS:*
 
@@ -123,16 +103,16 @@ A/C Holder: {self.account_holder}
 3️⃣ Take payment screenshot
 4️⃣ Send screenshot to admin
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💬 *Contact Admin:*
 {self.admin_username}
 
 Message format:
-“*Payment Done*
+"*Payment Done*
 Reference: `{reference}`
 Amount: ₹{amount}
-+ Screenshot”
++ Screenshot"
 
 ⏱️ API Key will be activated in *5-10 minutes*
 
@@ -147,7 +127,7 @@ Amount: ₹{amount}
         """
         
         # UPI payment string format
-        upi_string = f"upi://pay?pa={self.upi_id}&pn={self.account_holder}&am={amount}&tn={reference}"
+        upi_string = f"upi://pay?pa={self.upi_id}&pn=Aman&am={amount}&tn={reference}"
         
         return upi_string
     
