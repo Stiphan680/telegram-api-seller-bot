@@ -343,6 +343,8 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.first_name
     
+    logger.info(f"User {user_id} ({username}) selected plan: {plan}")
+    
     has_plan = db.has_active_plan(user_id, plan)
     if has_plan:
         await query.edit_message_text(
@@ -357,7 +359,7 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         api_key = db.create_api_key(user_id, username, plan, expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
         
         if not api_key:
-            await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key. Please try again or contact support.")
+            await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key. Please try again or contact support.", parse_mode='Markdown')
             return
         
         # Test backend
@@ -435,36 +437,54 @@ print(response.json())
         await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
     
     else:
-        # Show manual payment instructions
+        # Show manual payment instructions for paid plans
+        logger.info(f"Showing payment instructions for {plan} plan")
+        
         if payment_handler:
-            payment_request = payment_handler.create_payment_request(
-                user_id=user_id,
-                username=username,
-                plan=plan,
-                amount=PLANS[plan]['price']
-            )
-            
-            payment_msg = payment_request['instructions']
-            
-            keyboard = [
-                [InlineKeyboardButton("✅ I've Paid - Verify", callback_data=f'check_payment_{plan}')],
-                [InlineKeyboardButton("« Choose Another Plan", callback_data='buy_api')]
-            ]
+            try:
+                payment_request = payment_handler.create_payment_request(
+                    user_id=user_id,
+                    username=username,
+                    plan=plan,
+                    amount=PLANS[plan]['price']
+                )
+                
+                # Use plain text (no markdown) to avoid parsing errors
+                payment_msg = payment_request['instructions']
+                
+                keyboard = [
+                    [InlineKeyboardButton("✅ I've Paid - Contact Admin", url="https://t.me/Anonononononon")],
+                    [InlineKeyboardButton("« Choose Another Plan", callback_data='buy_api')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Send without parse_mode to avoid markdown errors
+                await query.edit_message_text(payment_msg, reply_markup=reply_markup)
+                logger.info(f"Payment instructions sent successfully for {plan}")
+                
+            except Exception as e:
+                logger.error(f"Error showing payment instructions: {e}")
+                await query.edit_message_text(
+                    f"❌ Error showing payment instructions. Please contact @Anonononononon",
+                    parse_mode=None
+                )
         else:
             payment_msg = f"""
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  💳 *PAYMENT REQUIRED*  ┃
+┃  💳 PAYMENT REQUIRED  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-*Plan:* {PLANS[plan]['name'].upper()}
-*Price:* ₹{PLANS[plan]['price']}/month
+Plan: {PLANS[plan]['name'].upper()}
+Price: ₹{PLANS[plan]['price']}/month
 
-Please contact admin for payment details.
+Please contact @Anonononononon for payment details.
             """
-            keyboard = [[InlineKeyboardButton("« Back", callback_data='buy_api')]]
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
+            keyboard = [
+                [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
+                [InlineKeyboardButton("« Back", callback_data='buy_api')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(payment_msg, reply_markup=reply_markup)
 
 async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
