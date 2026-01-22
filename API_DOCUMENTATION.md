@@ -1,433 +1,518 @@
-# 📚 API Documentation
+# 🤖 Advanced AI API Documentation
 
-## Base URL
+## 📋 Base Information
 
-```
-https://your-backend.onrender.com
+**API Endpoint:** `https://your-api-endpoint.onrender.com`
+
+**Authentication:** API Key in headers
+
+**Content-Type:** `application/json`
+
+---
+
+## 🔐 Authentication
+
+All requests require API key in headers:
+
+```http
+X-API-Key: your_api_key_here
+Content-Type: application/json
 ```
 
 ---
 
-## Endpoints
+## 📡 API Endpoints
 
-### 1. 🏠 Home - GET `/`
+### 1. Health Check
 
-**Description**: API information and available endpoints
+**Endpoint:** `GET /health`
 
-**Response**:
+**Description:** Check if API is running
+
+**No authentication required**
+
+**Request:**
+```bash
+curl https://your-api.com/health
+```
+
+**Response:**
 ```json
 {
-  "name": "Advanced AI API",
+  "status": "healthy",
+  "models": ["gemini", "groq", "perplexity"],
   "version": "2.0",
-  "features": [...],
-  "models": {...},
-  "endpoints": {...}
+  "uptime": "5h 23m",
+  "timestamp": "2026-01-22T18:30:00Z"
 }
 ```
 
 ---
 
-### 2. 💬 Chat - POST `/chat`
+### 2. Chat (Main Endpoint)
 
-**Description**: Main chat endpoint with advanced features
+**Endpoint:** `POST /chat`
 
-**Request Body**:
+**Description:** Get AI response with advanced features
+
+**Authentication:** Required
+
+**Request Body:**
 ```json
 {
-  "question": "What is AI?",
-  "user_id": "user123",
+  "question": "What is artificial intelligence?",
+  "user_id": "user_123",
   "language": "english",
   "tone": "professional",
-  "include_context": true,
+  "include_context": false,
   "max_tokens": 4096,
   "temperature": 0.7
 }
 ```
 
-**Parameters**:
+**Request Example (Python):**
+```python
+import requests
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `question` | string | Yes | - | User's question |
-| `user_id` | string | No | "anonymous" | For conversation tracking |
-| `language` | string | No | "english" | Response language |
-| `tone` | string | No | "default" | Response tone |
-| `include_context` | boolean | No | false | Use conversation history |
-| `max_tokens` | integer | No | 4096 | Max response length |
-| `temperature` | float | No | 0.7 | Creativity (0.0-1.0) |
+url = "https://your-api.com/chat"
+headers = {
+    "X-API-Key": "sk_live_abc123xyz",
+    "Content-Type": "application/json"
+}
 
-**Supported Languages**:
-- `english`
-- `hindi` (हिंदी)
-- `spanish` (Español)
-- `french` (Français)
-- `german` (Deutsch)
-- `chinese` (中文)
-- `japanese` (日本語)
-- `arabic` (العربية)
+data = {
+    "question": "Explain quantum computing in simple terms",
+    "language": "english",
+    "tone": "casual",
+    "include_context": False,
+    "max_tokens": 2048,
+    "temperature": 0.7
+}
 
-**Supported Tones**:
-- `default` - Balanced, neutral
-- `professional` - Business-appropriate
-- `casual` - Friendly, conversational
-- `creative` - Imaginative, innovative
-- `educational` - Clear explanations
-- `code` - Technical, programming focus
-- `analyst` - Data-driven insights
+response = requests.post(url, json=data, headers=headers)
+print(response.json())
+```
 
-**Response**:
+**Success Response:**
 ```json
 {
   "success": true,
-  "response": "AI is artificial intelligence...",
+  "response": "Artificial Intelligence (AI) is the simulation of human intelligence in machines...",
   "model": "gemini",
-  "latency": 0.85,
+  "backend_used": "perplexity",
+  "latency": 1.23,
   "tokens": 150,
-  "timestamp": "2026-01-22T15:30:00"
+  "timestamp": "2026-01-22T18:30:15Z",
+  "search_performed": false,
+  "context_used": false
 }
 ```
 
-**Example (Python)**:
-```python
-import requests
-
-url = "https://your-backend.onrender.com/chat"
-data = {
-    "question": "Explain quantum computing",
-    "language": "english",
-    "tone": "educational",
-    "include_context": True,
-    "user_id": "user123"
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Invalid API key",
+  "code": "AUTH_ERROR",
+  "timestamp": "2026-01-22T18:30:15Z"
 }
-
-response = requests.post(url, json=data)
-print(response.json()['response'])
 ```
 
-**Example (JavaScript)**:
-```javascript
-const response = await fetch('https://your-backend.onrender.com/chat', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({
-    question: 'What is machine learning?',
-    language: 'english',
-    tone: 'casual'
-  })
-});
+**Parameters:**
 
-const data = await response.json();
-console.log(data.response);
-```
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `question` | string | ✅ Yes | - | Your question or prompt |
+| `user_id` | string | ❌ No | "anonymous" | Unique user identifier for context |
+| `language` | string | ❌ No | "english" | Response language (english, hindi, spanish, etc.) |
+| `tone` | string | ❌ No | "default" | Response tone (default, professional, casual, creative, educational, code, analyst) |
+| `include_context` | boolean | ❌ No | false | Use conversation history |
+| `max_tokens` | integer | ❌ No | 4096 | Maximum response length |
+| `temperature` | float | ❌ No | 0.7 | Creativity (0.0 to 1.0) |
 
 ---
 
-### 3. ⚡ Stream - POST `/stream`
+### 3. Streaming Response
 
-**Description**: Real-time streaming responses (SSE)
+**Endpoint:** `POST /stream`
 
-**Request Body**:
-```json
-{
-  "question": "Tell me a story",
-  "user_id": "user123",
-  "language": "english",
-  "tone": "creative",
-  "temperature": 0.9,
-  "max_tokens": 2048
+**Description:** Get real-time streaming response
+
+**Authentication:** Required
+
+**Request:**
+```python
+import requests
+
+url = "https://your-api.com/stream"
+headers = {
+    "X-API-Key": "sk_live_abc123xyz",
+    "Content-Type": "application/json"
 }
+
+data = {
+    "question": "Write a story about AI",
+    "tone": "creative",
+    "temperature": 0.9
+}
+
+response = requests.post(url, json=data, headers=headers, stream=True)
+
+for chunk in response.iter_lines():
+    if chunk:
+        print(chunk.decode('utf-8'))
 ```
 
-**Response** (Server-Sent Events):
+**Response (Server-Sent Events):**
 ```
 data: {"text": "Once"}
-
 data: {"text": " upon"}
-
 data: {"text": " a"}
-
-data: {"text": " time"}
-```
-
-**Example (Python)**:
-```python
-import requests
-import json
-
-url = "https://your-backend.onrender.com/stream"
-data = {
-    "question": "Write a poem about AI",
-    "tone": "creative"
-}
-
-with requests.post(url, json=data, stream=True) as r:
-    for line in r.iter_lines():
-        if line and line.startswith(b'data: '):
-            chunk = json.loads(line[6:])
-            print(chunk['text'], end='', flush=True)
+data: {"text": " time..."}
 ```
 
 ---
 
-### 4. 📊 Analyze - POST `/analyze`
+### 4. Text Analysis
 
-**Description**: Comprehensive text analysis
+**Endpoint:** `POST /analyze`
 
-**Request Body**:
+**Description:** Analyze text sentiment, topics, and tone
+
+**Authentication:** Required
+
+**Request:**
 ```json
 {
-  "text": "AI is revolutionizing the world with machine learning and deep learning."
+  "text": "This product is amazing! Best purchase ever. Highly recommended!"
 }
 ```
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
   "analysis": {
-    "sentiment": {
-      "type": "positive",
-      "score": 0.85
-    },
-    "key_topics": [
-      "AI",
-      "Machine Learning",
-      "Deep Learning",
-      "Technology"
-    ],
-    "summary": "Text discusses AI's impact through ML and DL.",
-    "entities": {
-      "technologies": ["AI", "Machine Learning", "Deep Learning"]
-    },
-    "tone": "informative"
+    "sentiment": "positive",
+    "sentiment_score": 0.95,
+    "main_topics": ["product review", "recommendation"],
+    "tone": "enthusiastic",
+    "keywords": ["amazing", "best", "recommended"],
+    "language": "english"
   },
-  "timestamp": "2026-01-22T15:30:00"
+  "timestamp": "2026-01-22T18:30:15Z"
 }
 ```
 
-**Use Cases**:
-- Sentiment analysis
-- Topic extraction
-- Entity recognition
-- Content categorization
-
 ---
 
-### 5. 📝 Summarize - POST `/summarize`
+### 5. Content Summarization
 
-**Description**: Intelligent content summarization
+**Endpoint:** `POST /summarize`
 
-**Request Body**:
+**Description:** Summarize long content
+
+**Authentication:** Required
+
+**Request:**
 ```json
 {
-  "content": "Long article or text here...",
+  "content": "Your long text here...",
   "style": "bullet"
 }
 ```
 
-**Styles**:
-- `concise` - 2-3 sentences
-- `bullet` - 5-7 key points
-- `detailed` - Comprehensive summary
+**Styles:** `concise`, `bullet`, `detailed`
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
-  "summary": "\u2022 Key point 1\n\u2022 Key point 2\n...",
+  "summary": "• First key point\n• Second key point\n• Third key point",
   "style": "bullet",
-  "original_length": 5000,
-  "summary_length": 500,
-  "compression_ratio": 0.10
+  "original_length": 1500,
+  "summary_length": 250,
+  "compression_ratio": 0.17,
+  "timestamp": "2026-01-22T18:30:15Z"
 }
-```
-
-**Example**:
-```python
-data = {
-    "content": """Very long article text here...""",
-    "style": "concise"
-}
-
-response = requests.post(
-    "https://your-backend.onrender.com/summarize",
-    json=data
-)
-print(response.json()['summary'])
 ```
 
 ---
 
-### 6. 💻 Code - POST `/code`
+### 6. Code Assistance
 
-**Description**: Advanced code assistance
+**Endpoint:** `POST /code`
 
-**For Code Review/Debug**:
+**Description:** Debug code or generate code
+
+**Authentication:** Required
+
+**Request (Generate Code):**
 ```json
 {
-  "code": "def add(a, b):\n    return a + b",
+  "task": "Create a function to reverse a string",
   "language": "python"
 }
 ```
 
-**For Code Generation**:
-```json
-{
-  "task": "Create a REST API endpoint for user authentication",
-  "language": "python"
-}
-```
-
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
-  "response": "Code with explanation...",
+  "response": "```python\ndef reverse_string(text):\n    \"\"\"Reverse a string\"\"\"\n    return text[::-1]\n\n# Example usage\nresult = reverse_string('Hello')\nprint(result)  # Output: 'olleH'\n```",
   "language": "python",
-  "type": "generate"
+  "type": "generate",
+  "timestamp": "2026-01-22T18:30:15Z"
 }
 ```
 
-**Supported Languages**:
-- Python
-- JavaScript/TypeScript
-- Java
-- C++/C
-- Go
-- Rust
-- PHP
-- Ruby
-- And more...
-
----
-
-### 7. 🗑️ Clear - POST `/clear`
-
-**Description**: Clear conversation history
-
-**Request Body**:
+**Request (Debug Code):**
 ```json
 {
-  "user_id": "user123"
+  "code": "def add(a, b)\n    return a + b",
+  "language": "python"
 }
 ```
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
-  "message": "Conversation history cleared"
+  "response": "**Issue Found:** Missing colon after function definition\n\n**Fixed Code:**\n```python\ndef add(a, b):\n    return a + b\n```\n\n**Explanation:** Python function definitions require a colon (:) at the end.",
+  "language": "python",
+  "type": "debug",
+  "timestamp": "2026-01-22T18:30:15Z"
 }
 ```
 
 ---
 
-### 8. ❤️ Health - GET `/health`
+### 7. Clear Conversation History
 
-**Description**: Service health check
+**Endpoint:** `POST /clear`
 
-**Response**:
+**Description:** Clear conversation context for a user
+
+**Authentication:** Required
+
+**Request:**
 ```json
 {
-  "status": "healthy",
-  "models_available": ["gemini", "groq", "mixtral"],
-  "features_active": true,
-  "version": "2.0"
+  "user_id": "user_123"
 }
 ```
 
----
-
-## Error Handling
-
-**Error Response Format**:
+**Response:**
 ```json
 {
-  "success": false,
-  "error": "Error message here"
+  "success": true,
+  "message": "Conversation cleared",
+  "user_id": "user_123",
+  "timestamp": "2026-01-22T18:30:15Z"
 }
 ```
 
-**Common Error Codes**:
-- `400` - Bad Request (missing parameters)
-- `401` - Unauthorized (invalid API key)
-- `429` - Rate Limit Exceeded
-- `500` - Internal Server Error
-- `503` - Service Unavailable
+---
+
+## 🌍 Supported Languages
+
+- English
+- Hindi (हिंदी)
+- Spanish (Español)
+- French (Français)
+- German (Deutsch)
+- Chinese (中文)
+- Japanese (日本語)
+- Arabic (العربية)
+
+**Example:**
+```json
+{
+  "question": "आर्टिफिशियल इंटेलिजेंस क्या है?",
+  "language": "hindi"
+}
+```
 
 ---
 
-## Rate Limits
+## 🎨 Tone Options
 
-| Model | Free Tier | Limit |
-|-------|-----------|-------|
-| Gemini | Yes | 60 requests/minute |
-| Groq | Yes | 30 requests/minute |
-| Mixtral | Yes | 30 requests/minute |
-
-**Best Practices**:
-- Add 1-2 second delay between requests
-- Implement exponential backoff
-- Cache common responses
-- Use streaming for long responses
+| Tone | Description | Use Case |
+|------|-------------|----------|
+| `default` | Neutral, balanced | General queries |
+| `professional` | Formal, business-like | Professional content |
+| `casual` | Friendly, conversational | Casual chat |
+| `creative` | Imaginative, artistic | Creative writing |
+| `educational` | Clear, teaching style | Learning, tutorials |
+| `code` | Technical, precise | Programming help |
+| `analyst` | Detailed, data-driven | Analysis, reports |
 
 ---
 
-## Model Selection
+## 📊 Rate Limits
 
-The API automatically selects the best model based on:
+### Free Plan
+- **Requests:** 100/hour
+- **Language:** English only
+- **Tone:** Default only
+- **Context:** Not available
 
-1. **Code Queries** → Groq (fast)
-2. **Creative Tasks** → Gemini (quality)
-3. **Long Context** → Gemini (1M tokens)
-4. **Default** → Gemini (balanced)
+### Basic Plan
+- **Requests:** Unlimited
+- **Languages:** All 8+ languages
+- **Tones:** All tones
+- **Context:** Available
+
+### Pro Plan
+- **Everything in Basic**
+- **Streaming:** Available
+- **Priority:** High priority queue
+- **Analytics:** Advanced metrics
 
 ---
 
-## Performance
+## ⚠️ Error Codes
 
-| Metric | Value |
-|--------|-------|
-| Average Latency | <1 second |
-| Streaming First Token | <200ms |
-| Context Window | Up to 1M tokens |
-| Concurrent Users | Unlimited |
-| Uptime | 99.9% |
+| Code | Message | Solution |
+|------|---------|----------|
+| `AUTH_ERROR` | Invalid API key | Check your API key |
+| `RATE_LIMIT` | Rate limit exceeded | Upgrade plan or wait |
+| `INVALID_REQUEST` | Missing required field | Check request format |
+| `SERVER_ERROR` | Internal server error | Try again later |
+| `PLAN_EXPIRED` | API key expired | Renew your plan |
 
 ---
 
-## SDKs & Examples
+## 💻 Code Examples
 
-### Python SDK:
+### Python
+
 ```python
+import requests
+
 class AIClient:
-    def __init__(self, base_url):
-        self.base_url = base_url
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.base_url = "https://your-api.com"
     
     def chat(self, question, **kwargs):
-        return requests.post(
+        headers = {
+            "X-API-Key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        
+        data = {"question": question, **kwargs}
+        
+        response = requests.post(
             f"{self.base_url}/chat",
-            json={"question": question, **kwargs}
-        ).json()
-    
-    def stream(self, question, **kwargs):
-        with requests.post(
-            f"{self.base_url}/stream",
-            json={"question": question, **kwargs},
-            stream=True
-        ) as r:
-            for line in r.iter_lines():
-                if line:
-                    yield line
+            json=data,
+            headers=headers
+        )
+        
+        return response.json()
 
-client = AIClient("https://your-backend.onrender.com")
-response = client.chat("Hello!")
+# Usage
+client = AIClient("sk_live_abc123xyz")
+result = client.chat(
+    "What is machine learning?",
+    language="english",
+    tone="educational"
+)
+
+print(result['response'])
+```
+
+### JavaScript (Node.js)
+
+```javascript
+const axios = require('axios');
+
+class AIClient {
+  constructor(apiKey) {
+    this.apiKey = apiKey;
+    this.baseUrl = 'https://your-api.com';
+  }
+  
+  async chat(question, options = {}) {
+    const response = await axios.post(
+      `${this.baseUrl}/chat`,
+      { question, ...options },
+      {
+        headers: {
+          'X-API-Key': this.apiKey,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    return response.data;
+  }
+}
+
+// Usage
+const client = new AIClient('sk_live_abc123xyz');
+
+client.chat('Explain AI', {
+  language: 'english',
+  tone: 'casual'
+}).then(result => {
+  console.log(result.response);
+});
+```
+
+### cURL
+
+```bash
+curl -X POST https://your-api.com/chat \
+  -H "X-API-Key: sk_live_abc123xyz" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is AI?",
+    "language": "english",
+    "tone": "professional"
+  }'
 ```
 
 ---
 
-## Support
+## 📈 Best Practices
 
-For issues or questions:
-- GitHub: [Issues](https://github.com/Stiphan680/telegram-api-seller-bot/issues)
-- Telegram: Admin ID `5451167865`
+1. **Store API keys securely** - Never commit to Git
+2. **Handle errors gracefully** - Always check `success` field
+3. **Use appropriate tone** - Match tone to use case
+4. **Enable context** - For conversational AI
+5. **Set max_tokens** - Control response length
+6. **Monitor usage** - Track API calls
+
+---
+
+## 🆘 Support
+
+**Questions?** Contact admin via Telegram bot
+
+**Issues?** Use `/help` command in bot
+
+**Upgrades?** Use `/buy` command to upgrade plan
+
+---
+
+## 📝 Changelog
+
+### v2.0 (Current)
+- ✅ Multi-language support (8+ languages)
+- ✅ Tone control (7 different tones)
+- ✅ Conversation context
+- ✅ Text analysis
+- ✅ Content summarization
+- ✅ Code assistance
+- ✅ Streaming responses
+- ✅ Perplexity AI integration
+
+### v1.0
+- Basic chat functionality
+- Single language (English)
+- Free tier only
+
+---
+
+*Last Updated: January 22, 2026*
