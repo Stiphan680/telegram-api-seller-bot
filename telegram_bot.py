@@ -3,11 +3,11 @@ import logging
 import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from database import Database
 from config import Config
 
-# Import AI Router and Notification Manager
+# Import AI Router, Notification Manager, and Manual Payment
 try:
     from ai_router import get_ai_router
     AI_ROUTER_AVAILABLE = True
@@ -21,6 +21,15 @@ try:
 except ImportError:
     NOTIFICATIONS_AVAILABLE = False
     print("⚠️ Notification Manager not available")
+
+try:
+    from manual_payment import get_manual_payment_handler
+    payment_handler = get_manual_payment_handler()
+    PAYMENT_AVAILABLE = True
+except ImportError:
+    PAYMENT_AVAILABLE = False
+    payment_handler = None
+    print("⚠️ Manual Payment not available")
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -134,12 +143,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {backend_info}
 
 *Admin Commands:*
-/admin - Admin Panel
+/payments - View pending payments
+/verify - Verify payment
 /backend - Check AI Backend
-/stats - System Statistics
         """
         keyboard = [
-            [InlineKeyboardButton("👑 Admin Panel", callback_data='admin_panel')],
+            [InlineKeyboardButton("💳 Pending Payments", callback_data='admin_payments')],
             [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')]
         ]
     else:
@@ -153,6 +162,7 @@ Hello {user.first_name}!
 *Commands:*
 /buy - Get API access
 /myapi - View your keys
+/payment - Check payment status
 /help - Get help
         """
         keyboard = [
@@ -277,17 +287,128 @@ Use /myapi to view all keys
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
+    
     else:
-        payment_msg = f"""
+        # Show manual payment instructions
+        if payment_handler:
+            payment_request = payment_handler.create_payment_request(
+                user_id=user_id,
+                username=username,
+                plan=plan,
+                amount=PLANS[plan]['price']
+            )
+            
+            payment_msg = payment_request['instructions']
+            
+            keyboard = [
+                [InlineKeyboardButton("✅ Payment Done?", callback_data=f'check_payment_{plan}')],
+                [InlineKeyboardButton("« Back", callback_data='buy_api')]
+            ]
+        else:
+            payment_msg = f"""
 💳 *{PLANS[plan]['name']} Payment*
 
 Price: *₹{PLANS[plan]['price']}/month*
 
 Contact admin for payment details.
-        """
-        keyboard = [[InlineKeyboardButton("« Back", callback_data='buy_api')]]
+            """
+            keyboard = [[InlineKeyboardButton("« Back", callback_data='buy_api')]]
+        
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def check_payment_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User checks their payment status"""
+    user_id = update.effective_user.id
+    
+    if payment_handler:
+        summary = payment_handler.get_payment_summary(user_id)
+        await update.message.reply_text(summary, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Payment system not available")
+
+async def admin_view_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views all pending payments"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if payment_handler:
+        summary = payment_handler.get_admin_summary()
+        await update.message.reply_text(summary, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Payment system not available")
+
+async def admin_verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin verifies a payment: /verify USER_123_BASIC"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if not context.args:
+        await update.message.reply_text("❌ Usage: /verify USER_123_BASIC")
+        return
+    
+    reference = context.args[0]
+    
+    if payment_handler:
+        payment = payment_handler.get_pending_payment(reference)
+        
+        if not payment:
+            await update.message.reply_text("❌ Payment not found!")
+            return
+        
+        # Create API key
+        api_key = db.create_api_key(
+            user_id=payment['user_id'],
+            username=payment['username'],
+            plan=payment['plan'],
+            expiry_days=30  # Paid plans: 30 days
+        )
+        
+        if api_key:
+            # Mark as verified
+            payment_handler.mark_payment_verified(reference)
+            
+            # Notify channel
+            if notifier:
+                try:
+                    await notifier.notify_new_api_key(
+                        username=payment['username'],
+                        user_id=payment['user_id'],
+                        plan=payment['plan'],
+                        backend='manual_verified'
+                    )
+                except:
+                    pass
+            
+            # Send to admin
+            await update.message.reply_text(
+                f"✅ *Payment Verified!*\n\n"
+                f"User: @{payment['username']}\n"
+                f"Plan: {payment['plan'].upper()}\n"
+                f"API Key: `{api_key}`\n\n"
+                f"User has been notified.",
+                parse_mode='Markdown'
+            )
+            
+            # Notify user
+            try:
+                await context.bot.send_message(
+                    chat_id=payment['user_id'],
+                    text=f"✅ *Payment Verified!*\n\n"
+                         f"🔑 Your API Key:\n`{api_key}`\n\n"
+                         f"Plan: {payment['plan'].upper()}\n"
+                         f"Valid for 30 days\n\n"
+                         f"Use /myapi to view all keys",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify user: {e}")
+        else:
+            await update.message.reply_text("❌ Failed to create API key!")
+    else:
+        await update.message.reply_text("❌ Payment system not available")
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
@@ -344,6 +465,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /start - Start bot
 /buy - Get API access
 /myapi - View your keys
+/payment - Check payment status
 /help - This message
 
 *Plans:*
@@ -383,6 +505,9 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("backend", check_backend_status))
     application.add_handler(CommandHandler("myapi", my_api_key))
+    application.add_handler(CommandHandler("payment", check_payment_status))
+    application.add_handler(CommandHandler("payments", admin_view_payments))
+    application.add_handler(CommandHandler("verify", admin_verify_payment))
     application.add_handler(CommandHandler("help", help_command))
     
     # Callback handlers
@@ -402,6 +527,7 @@ def main():
     backend_status = ai_router.get_backend_status() if ai_router else {}
     logger.info(f"🚀 Bot started - Backends: {backend_status.get('available_backends', [])}")
     logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
+    logger.info(f"💳 Payment: {'Manual' if payment_handler else 'Disabled'}")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
