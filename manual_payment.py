@@ -15,17 +15,18 @@ class ManualPaymentHandler:
     """
     
     def __init__(self):
-        # Your payment details - CHANGE THESE!
-        self.upi_id = os.getenv('UPI_ID', 'yourname@paytm')
+        # Your payment details - Updated with Aman4380@kphdfc
+        self.upi_id = os.getenv('UPI_ID', 'Aman4380@kphdfc')
         self.phone = os.getenv('PAYMENT_PHONE', '+91-9876543210')
-        self.bank_name = os.getenv('BANK_NAME', 'State Bank of India')
-        self.account_holder = os.getenv('ACCOUNT_HOLDER', 'Your Name')
-        self.admin_username = os.getenv('ADMIN_USERNAME', '@YourUsername')
+        self.bank_name = os.getenv('BANK_NAME', 'Kotak Mahindra Bank')
+        self.account_holder = os.getenv('ACCOUNT_HOLDER', 'Aman')
+        self.admin_username = os.getenv('ADMIN_USERNAME', '@YourAdminHandle')
         
         # Track pending payments
         self.pending_payments = {}
         
         logger.info("✅ Manual payment system initialized")
+        logger.info(f"💳 UPI ID: {self.upi_id}")
     
     def create_payment_request(self, 
                               user_id: int,
@@ -72,64 +73,70 @@ class ManualPaymentHandler:
                                 plan: str,
                                 amount: int) -> str:
         """
-        Generate formatted payment instructions
+        Generate formatted payment instructions with better UI
         """
         
         instructions = f"""
-💳 *Manual Payment Instructions*
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  💳 *PAYMENT INSTRUCTIONS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-*Plan:* {plan.upper()}
-*Amount:* ₹{amount}
-*Reference:* `{reference}`
+🏷️ *Plan:* {plan.upper()}
+💵 *Amount:* ₹{amount}
+🎯 *Reference:* `{reference}`
 
-┌─────────────────────
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*📱 Method 1: UPI Payment*
+📱 *METHOD 1: UPI Payment (Instant)*
 
-1️⃣ Open any UPI app:
-   • PhonePe / GPay / Paytm
-   
-2️⃣ Pay to UPI ID:
-   `{self.upi_id}`
-   
-3️⃣ Amount: ₹{amount}
+🔹 Open PhonePe/GPay/Paytm
+🔹 Scan QR or pay to UPI ID
 
-4️⃣ Add note: `{reference}`
+*UPI ID:* `{self.upi_id}`
 
-─────────────────────
+✅ Amount: ₹{amount}
+✅ Add Note: `{reference}`
 
-*📞 Method 2: Phone Payment*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Send money to:
+📞 *METHOD 2: Phone Payment*
+
+Send money directly to:
 `{self.phone}`
 
-via PhonePe/Paytm/GPay
+via any UPI app
 
-─────────────────────
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*🏦 Method 3: Bank Transfer*
+🏦 *METHOD 3: Bank Transfer*
 
 Bank: {self.bank_name}
 A/C Holder: {self.account_holder}
 (Contact admin for A/C number)
 
-└─────────────────────
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*⚠️ IMPORTANT:*
+⚠️ *IMPORTANT STEPS:*
 
-✅ Always add reference: `{reference}`
-✅ Take screenshot of payment
-✅ Send screenshot to admin
-✅ API key activated in 5-10 minutes
+1️⃣ Pay ₹{amount} to `{self.upi_id}`
+2️⃣ Add reference: `{reference}`
+3️⃣ Take payment screenshot
+4️⃣ Send screenshot to admin
 
-*💬 Contact Admin:*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 *Contact Admin:*
 {self.admin_username}
 
-Send message:
-"Payment done for {reference}"
-+ Screenshot
+Message format:
+“*Payment Done*
+Reference: `{reference}`
+Amount: ₹{amount}
++ Screenshot”
 
-✨ Thank you for your purchase!
+⏱️ API Key will be activated in *5-10 minutes*
+
+✨ *Thank you for your purchase!*
         """
         
         return instructions
@@ -172,7 +179,7 @@ Send message:
     
     def get_payment_summary(self, user_id: int) -> str:
         """
-        Get payment summary for user
+        Get payment summary for user with better UI
         """
         
         user_payments = [
@@ -181,37 +188,66 @@ Send message:
         ]
         
         if not user_payments:
-            return "❌ No pending payments found."
+            return """
+❌ *No Pending Payments*
+
+You don't have any pending payments.
+Use /buy to purchase a plan!
+            """
         
-        summary = "📊 *Your Payment Status*\n\n"
+        summary = """
+┏━━━━━━━━━━━━━━━━━━━━━━┓
+┃  📊 *YOUR PAYMENTS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━┛
+
+"""
         
-        for payment in user_payments:
+        for idx, payment in enumerate(user_payments, 1):
             status_emoji = "⏳" if payment['status'] == 'pending' else "✅"
-            summary += f"{status_emoji} {payment['plan'].upper()}\n"
-            summary += f"   Amount: ₹{payment['amount']}\n"
-            summary += f"   Reference: `{payment['reference']}`\n"
-            summary += f"   Status: {payment['status'].title()}\n\n"
+            summary += f"{idx}. {status_emoji} *{payment['plan'].upper()} Plan*\n"
+            summary += f"   💵 Amount: ₹{payment['amount']}\n"
+            summary += f"   🎯 Reference: `{payment['reference']}`\n"
+            summary += f"   📅 Status: {payment['status'].title()}\n\n"
+        
+        summary += "━━━━━━━━━━━━━━━━━━━━━━\n"
+        summary += f"\n💬 Need help? Contact {self.admin_username}"
         
         return summary
     
     def get_admin_summary(self) -> str:
         """
-        Get pending payments summary for admin
+        Get pending payments summary for admin with better UI
         """
         
         pending = self.get_all_pending_payments()
         
         if not pending:
-            return "✅ No pending payments."
+            return """
+✅ *No Pending Payments*
+
+All payments are processed!
+            """
         
-        summary = f"📊 *Pending Payments* ({len(pending)})\n\n"
+        summary = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  📊 *PENDING PAYMENTS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Total: {len(pending)} payment(s)
+
+"""
         
         for idx, payment in enumerate(pending, 1):
-            summary += f"{idx}. @{payment['username']} (ID: {payment['user_id']})\n"
-            summary += f"   Plan: {payment['plan'].upper()}\n"
-            summary += f"   Amount: ₹{payment['amount']}\n"
-            summary += f"   Reference: `{payment['reference']}`\n"
-            summary += f"   Created: {payment['created_at'][:10]}\n\n"
+            summary += f"━━━━━━━━━━━━━━\n"
+            summary += f"{idx}. 👤 @{payment['username']} (ID: {payment['user_id']})\n"
+            summary += f"   🏷️ Plan: *{payment['plan'].upper()}*\n"
+            summary += f"   💵 Amount: ₹{payment['amount']}\n"
+            summary += f"   🎯 Reference: `{payment['reference']}`\n"
+            summary += f"   📅 Created: {payment['created_at'][:10]}\n\n"
+        
+        summary += "━━━━━━━━━━━━━━\n"
+        summary += "\n✅ To verify: `/verify REFERENCE`\n"
+        summary += "Example: `/verify USER_123_BASIC`"
         
         return summary
 
