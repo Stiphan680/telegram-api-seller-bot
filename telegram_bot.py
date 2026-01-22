@@ -1,7 +1,8 @@
 import os
 import logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters, ConversationHandler
 from database import Database
 from config import Config
 
@@ -14,17 +15,24 @@ db = Database()
 # Admin Telegram ID
 ADMIN_ID = 5451167865
 
+# Default free plan expiry (in days) - Admin can change this
+DEFAULT_FREE_EXPIRY_DAYS = 7  # 7 days default
+
+# Conversation states for admin
+SET_EXPIRY, SET_EXPIRY_DAYS = range(2)
+
 # API Plans with Premium Features
 PLANS = {
     'free': {
         'name': 'Free Plan',
         'price': 0,
-        'description': 'Free forever',
+        'description': f'Free for {DEFAULT_FREE_EXPIRY_DAYS} days',
         'features': [
             '100 requests/hour',
             'English language only',
             'Basic tone (neutral)',
             'No conversation history',
+            f'Valid for {DEFAULT_FREE_EXPIRY_DAYS} days',
             'Community support'
         ]
     },
@@ -38,7 +46,8 @@ PLANS = {
             'All tone controls',
             'Conversation history',
             'Text analysis (sentiment, keywords)',
-            'Email support'
+            'Email support',
+            'No expiry (monthly renewal)'
         ]
     },
     'pro': {
@@ -52,7 +61,8 @@ PLANS = {
             'Priority support',
             'Advanced analytics',
             'Custom features',
-            'Dedicated support'
+            'Dedicated support',
+            'No expiry (monthly renewal)'
         ]
     }
 }
@@ -60,6 +70,28 @@ PLANS = {
 def is_admin(user_id):
     """Check if user is admin"""
     return user_id == ADMIN_ID
+
+def format_expiry(expiry_date_str):
+    """Format expiry date for display"""
+    if not expiry_date_str:
+        return "No expiry (Permanent)"
+    
+    try:
+        expiry = datetime.fromisoformat(expiry_date_str)
+        now = datetime.now()
+        
+        if now > expiry:
+            return "⚠️ Expired"
+        
+        days_left = (expiry - now).days
+        hours_left = (expiry - now).seconds // 3600
+        
+        if days_left > 0:
+            return f"✅ {days_left} days left (expires {expiry.strftime('%Y-%m-%d')})"
+        else:
+            return f"⚠️ {hours_left} hours left"
+    except:
+        return "Invalid date"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message with menu"""
@@ -84,14 +116,12 @@ You have full admin access to the API Seller Bot.
 /admin - Admin Panel
 /stats - System Statistics
 /users - View All Users
-/broadcast - Send Broadcast Message
-/deactivate - Deactivate API Key
-/activate - Activate API Key
+/setexpiry - Set Free Plan Expiry Days
         """
         
         keyboard = [
             [InlineKeyboardButton("👑 Admin Panel", callback_data='admin_panel')],
-            [InlineKeyboardButton("📊 My API Key", callback_data='my_api')],
+            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
             [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
             [InlineKeyboardButton("✨ View Features", callback_data='features')]
         ]
@@ -113,7 +143,7 @@ I help you get your own Advanced AI Chatbot API key instantly.
 
 *Commands:*
 /buy - Purchase API access
-/myapi - Get your API key
+/myapi - Get your API keys
 /usage - Check API usage
 /features - View all features
 /help - Get help
@@ -121,7 +151,7 @@ I help you get your own Advanced AI Chatbot API key instantly.
         
         keyboard = [
             [InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')],
-            [InlineKeyboardButton("📊 My API Key", callback_data='my_api')],
+            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
             [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
             [InlineKeyboardButton("✨ View Features", callback_data='features')]
         ]
@@ -146,38 +176,52 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Get stats
-    all_users = db.get_all_users()
-    total_users = len(all_users)
-    active_users = len([u for u in all_users if u.get('is_active', True)])
-    total_requests = sum(u.get('requests_used', 0) for u in all_users)
+    stats = db.get_stats()
+    all_keys = db.get_all_api_keys()
     
     # Count by plan
-    free_count = len([u for u in all_users if u.get('plan') == 'free'])
-    basic_count = len([u for u in all_users if u.get('plan') == 'basic'])
-    pro_count = len([u for u in all_users if u.get('plan') == 'pro'])
+    free_count = len([k for k in all_keys if k.get('plan') == 'free'])
+    basic_count = len([k for k in all_keys if k.get('plan') == 'basic'])
+    pro_count = len([k for k in all_keys if k.get('plan') == 'pro'])
+    
+    # Count expired
+    expired_count = 0
+    for key in all_keys:
+        if key.get('expiry_date'):
+            try:
+                expiry = datetime.fromisoformat(key['expiry_date'])
+                if datetime.now() > expiry:
+                    expired_count += 1
+            except:
+                pass
     
     admin_text = f"""
 👑 *Admin Panel*
 
 📊 *System Statistics:*
-• Total Users: {total_users}
-• Active Keys: {active_users}
-• Total Requests: {total_requests}
+• Total Users: {stats.get('total_users', 0)}
+• Total API Keys: {stats.get('total_keys', 0)}
+• Active Keys: {stats.get('active_keys', 0)}
+• Expired Keys: {expired_count}
+• Total Requests: {stats.get('total_requests', 0)}
 
 📋 *Plan Distribution:*
-• Free: {free_count} users
-• Basic: {basic_count} users
-• Pro: {pro_count} users
+• Free: {free_count} keys
+• Basic: {basic_count} keys
+• Pro: {pro_count} keys
+
+⚙️ *Settings:*
+• Free Plan Expiry: {DEFAULT_FREE_EXPIRY_DAYS} days
 
 *Available Actions:*
-Use commands below to manage the system.
+Use buttons below to manage the system.
     """
     
     keyboard = [
-        [InlineKeyboardButton("👥 View Users", callback_data='admin_users')],
+        [InlineKeyboardButton("👥 View All Keys", callback_data='admin_keys')],
         [InlineKeyboardButton("📊 Detailed Stats", callback_data='admin_stats')],
-        [InlineKeyboardButton("📢 Broadcast Message", callback_data='admin_broadcast')],
-        [InlineKeyboardButton("🔑 Manage Keys", callback_data='admin_keys')],
+        [InlineKeyboardButton("⏰ Manage Expiry", callback_data='admin_expiry')],
+        [InlineKeyboardButton("🔄 Clean Expired", callback_data='admin_clean')],
         [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -187,8 +231,8 @@ Use commands below to manage the system.
     else:
         await update.message.reply_text(admin_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show all users to admin"""
+async def admin_all_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all API keys with details"""
     query = update.callback_query
     await query.answer()
     
@@ -196,19 +240,49 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ Admin access only!", show_alert=True)
         return
     
-    all_users = db.get_all_users()
+    all_keys = db.get_all_api_keys()
     
-    if not all_users:
-        message = "No users found."
+    if not all_keys:
+        message = "No API keys found."
     else:
-        message = "👥 *All Users:*\n\n"
-        for idx, user in enumerate(all_users[:20], 1):  # Show first 20
-            status = "✅" if user.get('is_active') else "❌"
-            message += f"{idx}. {status} @{user.get('username', 'N/A')} - {user.get('plan', 'free').upper()}\n"
-            message += f"   ID: `{user.get('telegram_id')}` | Requests: {user.get('requests_used', 0)}\n\n"
+        message = "🔑 *All API Keys:*\n\n"
+        for idx, key in enumerate(all_keys[:15], 1):  # Show first 15
+            status = "✅" if key.get('is_active') else "❌"
+            plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+            
+            expiry_info = format_expiry(key.get('expiry_date'))
+            
+            message += f"{idx}. {status} {plan_emoji} @{key.get('username', 'N/A')}\n"
+            message += f"   Plan: {key.get('plan', 'N/A').upper()} | Requests: {key.get('requests_used', 0)}\n"
+            message += f"   Expiry: {expiry_info}\n"
+            message += f"   Key: `{key.get('api_key', '')[:20]}...`\n\n"
         
-        if len(all_users) > 20:
-            message += f"\n_Showing 20 of {len(all_users)} users_"
+        if len(all_keys) > 15:
+            message += f"\n_Showing 15 of {len(all_keys)} keys_"
+    
+    keyboard = [[InlineKeyboardButton("« Back to Admin", callback_data='admin_panel')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def admin_clean_expired(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clean expired keys"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(query.from_user.id):
+        await query.answer("⛔ Admin access only!", show_alert=True)
+        return
+    
+    count = db.deactivate_expired_keys()
+    
+    message = f"""
+🔄 *Expired Keys Cleaned*
+
+✅ Deactivated {count} expired API keys.
+
+All expired keys have been automatically deactivated.
+    """
     
     keyboard = [[InlineKeyboardButton("« Back to Admin", callback_data='admin_panel')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -224,45 +298,40 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ Admin access only!", show_alert=True)
         return
     
-    all_users = db.get_all_users()
+    stats = db.get_stats()
+    all_keys = db.get_all_api_keys()
     
-    # Calculate stats
-    total_users = len(all_users)
-    active_users = len([u for u in all_users if u.get('is_active', True)])
-    inactive_users = total_users - active_users
-    total_requests = sum(u.get('requests_used', 0) for u in all_users)
-    avg_requests = total_requests // total_users if total_users > 0 else 0
+    free_keys = [k for k in all_keys if k.get('plan') == 'free']
+    basic_keys = [k for k in all_keys if k.get('plan') == 'basic']
+    pro_keys = [k for k in all_keys if k.get('plan') == 'pro']
     
-    free_users = [u for u in all_users if u.get('plan') == 'free']
-    basic_users = [u for u in all_users if u.get('plan') == 'basic']
-    pro_users = [u for u in all_users if u.get('plan') == 'pro']
+    free_requests = sum(k.get('requests_used', 0) for k in free_keys)
+    basic_requests = sum(k.get('requests_used', 0) for k in basic_keys)
+    pro_requests = sum(k.get('requests_used', 0) for k in pro_keys)
     
-    free_requests = sum(u.get('requests_used', 0) for u in free_users)
-    basic_requests = sum(u.get('requests_used', 0) for u in basic_users)
-    pro_requests = sum(u.get('requests_used', 0) for u in pro_users)
+    total_keys = stats.get('total_keys', 0)
     
     stats_text = f"""
 📊 *Detailed System Statistics*
 
-*Users Overview:*
-• Total Users: {total_users}
-• Active Keys: {active_users}
-• Inactive Keys: {inactive_users}
+*Users & Keys:*
+• Total Users: {stats.get('total_users', 0)}
+• Total API Keys: {total_keys}
+• Active Keys: {stats.get('active_keys', 0)}
 
 *Plan Distribution:*
-• Free Plan: {len(free_users)} users ({len(free_users)*100//total_users if total_users > 0 else 0}%)
-• Basic Plan: {len(basic_users)} users ({len(basic_users)*100//total_users if total_users > 0 else 0}%)
-• Pro Plan: {len(pro_users)} users ({len(pro_users)*100//total_users if total_users > 0 else 0}%)
+• Free Plan: {len(free_keys)} keys ({len(free_keys)*100//total_keys if total_keys > 0 else 0}%)
+• Basic Plan: {len(basic_keys)} keys ({len(basic_keys)*100//total_keys if total_keys > 0 else 0}%)
+• Pro Plan: {len(pro_keys)} keys ({len(pro_keys)*100//total_keys if total_keys > 0 else 0}%)
 
 *Request Statistics:*
-• Total Requests: {total_requests}
-• Average per User: {avg_requests}
+• Total Requests: {stats.get('total_requests', 0)}
 • Free Plan Requests: {free_requests}
 • Basic Plan Requests: {basic_requests}
 • Pro Plan Requests: {pro_requests}
 
 *API Status:*
-• API Gateway: {Config.API_BASE_URL}
+• API Gateway: Connected ✅
 • Database: Connected ✅
 • Bot Status: Running ✅
     """
@@ -277,13 +346,14 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    plans_text = """
+    plans_text = f"""
 💳 *Choose Your Plan*
 
 *1️⃣ Free Plan* - ₹0
    • 100 requests/hour
    • English language
    • Basic support
+   • Valid for {DEFAULT_FREE_EXPIRY_DAYS} days
    • Perfect for testing
 
 *2️⃣ Basic Plan* - ₹99/month
@@ -293,6 +363,7 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
    • Conversation history
    • Text analysis
    • Email support
+   • Monthly renewal (no expiry)
 
 *3️⃣ Pro Plan* - ₹299/month
    • Everything in Basic
@@ -301,14 +372,15 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
    • Priority support
    • Advanced analytics
    • Dedicated support
+   • Monthly renewal (no expiry)
 
 Select a plan below:
     """
     
     keyboard = [
-        [InlineKeyboardButton("🆓 Free Plan (₹0)", callback_data='select_free')],
-        [InlineKeyboardButton("💎 Basic Plan - ₹99", callback_data='select_basic')],
-        [InlineKeyboardButton("⭐ Pro Plan - ₹299", callback_data='select_pro')],
+        [InlineKeyboardButton(f"🆓 Free Plan (₹0) - {DEFAULT_FREE_EXPIRY_DAYS} days", callback_data='select_free')],
+        [InlineKeyboardButton("💎 Basic Plan - ₹99/mo", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Pro Plan - ₹299/mo", callback_data='select_pro')],
         [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -324,35 +396,38 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.first_name
     
-    # Check if user already has an API key
-    existing_user = db.get_user_by_telegram_id(user_id)
+    # Check if user already has this specific plan active
+    has_plan = db.has_active_plan(user_id, plan)
     
-    if existing_user:
+    if has_plan:
         message = f"""
-⚠️ *You already have an API key!*
+⚠️ *You already have an active {plan.upper()} plan!*
 
-Your current plan: *{existing_user['plan'].upper()}*
-Created: {existing_user['created_at'][:10]}
+You can have multiple plans (e.g., Free + Premium).
+But you cannot have multiple keys of the same plan type.
 
-Use /myapi to view your API key.
-Use /usage to check your usage stats.
-
-To upgrade your plan, contact support.
+Use /myapi to view all your API keys.
         """
-        keyboard = [[InlineKeyboardButton("📊 My API Key", callback_data='my_api')]]
+        keyboard = [[InlineKeyboardButton("📊 My API Keys", callback_data='my_api')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
         return
     
-    # For free plan, generate key immediately
+    # For free plan, generate key immediately with expiry
     if plan == 'free':
-        api_key = db.create_api_key(user_id, username, plan)
+        api_key = db.create_api_key(user_id, username, plan, expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
+        
+        if not api_key:
+            await query.edit_message_text("❌ Error generating API key. Please try again.")
+            return
         
         success_message = f"""
-✅ *API Key Generated Successfully!*
+✅ *Free API Key Generated Successfully!*
 
 🔑 Your API Key:
 `{api_key}`
+
+⏰ *Valid for {DEFAULT_FREE_EXPIRY_DAYS} days*
 
 *🌟 Example - Simple Request (Python):*
 ```python
@@ -365,7 +440,7 @@ headers = {{
 }}
 
 data = {{
-    "question": "What is artificial intelligence?",
+    "question": "What is AI?",
     "language": "english",
     "tone": "professional"
 }}
@@ -374,27 +449,25 @@ response = requests.post(url, json=data, headers=headers)
 print(response.json())
 ```
 
-*🌟 Supported Languages:*
-English, हिंदी, Español, Français, Deutsch, 中文, العربية, 日本語
-
-*🌟 Tone Controls:*
-neutral, professional, casual, creative, educational
-
 *🌟 Free Plan Features:*
 • 100 requests/hour
 • English language only
-• Basic tone (neutral)
-• Community support
+• Valid for {DEFAULT_FREE_EXPIRY_DAYS} days
+• Can upgrade to Premium anytime!
 
-*📚 Premium Features Available:*
-Upgrade to access multi-language, tone control, conversation history, text analysis & more!
+*💎 Want Premium Features?*
+Upgrade to Basic or Pro for:
+• Unlimited requests
+• 8+ languages
+• Advanced features
+• No expiry (monthly renewal)
 
 Contact admin for API endpoint details.
         """
         
         keyboard = [
-            [InlineKeyboardButton("✨ View Premium Features", callback_data='features')],
-            [InlineKeyboardButton("📈 Check Usage", callback_data='usage')],
+            [InlineKeyboardButton("✨ Upgrade to Premium", callback_data='buy_api')],
+            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
             [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -442,7 +515,7 @@ Price: *₹{plan_info['price']}/month*
         await query.edit_message_text(payment_message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show user's API key with usage examples"""
+    """Show user's API keys with usage examples"""
     if update.callback_query:
         query = update.callback_query
         await query.answer()
@@ -452,20 +525,18 @@ async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         edit_message = False
     
-    user = db.get_user_by_telegram_id(user_id)
+    keys = db.get_active_api_keys(user_id)
     
-    if not user:
+    if not keys:
         message = """
-❌ *No API Key Found*
+❌ *No Active API Keys Found*
 
-You don't have an API key yet.
+You don't have any active API keys yet.
 Click the button below to get one!
         """
         keyboard = [[InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
     else:
-        api_key = user['api_key']
-        
         # Show API Base URL only to admin
         if is_admin(user_id):
             api_url_text = f"""*API Base URL:*
@@ -476,44 +547,37 @@ Click the button below to get one!
             api_url_text = "_Contact admin for API endpoint details_\n\n"
         
         message = f"""
-🔑 *Your API Key*
+🔑 *Your API Keys*
 
-API Key:
-`{api_key}`
+{api_url_text}You have {len(keys)} active API key(s):
 
-{api_url_text}*Plan:* {user['plan'].upper()}
-*Status:* {'✅ Active' if user['is_active'] else '❌ Inactive'}
-*Requests Used:* {user['requests_used']}
-*Created:* {user['created_at'][:10]}
-
-*🌟 Example - Text Analysis:*
+"""
+        
+        for idx, key in enumerate(keys, 1):
+            plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+            expiry_info = format_expiry(key.get('expiry_date'))
+            
+            message += f"{idx}. {plan_emoji} *{key.get('plan', 'N/A').upper()} Plan*\n"
+            message += f"   Key: `{key.get('api_key')}`\n"
+            message += f"   Status: {'✅ Active' if key.get('is_active') else '❌ Inactive'}\n"
+            message += f"   Requests: {key.get('requests_used', 0)}\n"
+            message += f"   Expiry: {expiry_info}\n\n"
+        
+        message += """
+*📚 Usage Example:*
 ```bash
-curl -X POST YOUR_API_ENDPOINT/analyze \\
-  -H "X-API-Key: {api_key}" \\
+curl -X POST YOUR_API_ENDPOINT/chat \\
+  -H "X-API-Key: your-key-here" \\
   -H "Content-Type: application/json" \\
-  -d '{{
-    "text": "Your text here",
-    "type": "sentiment"
-  }}'
+  -d '{"question": "Hello!"}'
 ```
-
-*🌟 Available Languages:*
-🇬🇧 English, 🇮🇳 Hindi, 🇪🇸 Spanish, 🇫🇷 French, 🇩🇪 German, 🇨🇳 Chinese, 🇸🇦 Arabic, 🇯🇵 Japanese
-
-*🌟 Tone Controls:*
-⚪ Neutral, 💼 Professional, 😊 Casual, 🎨 Creative, 📚 Educational
-
-*🌟 Advanced Features:*
-📊 Text Analysis
-📝 Summarization
-💬 Conversation History
-⚡ Streaming Responses
 
 📖 Use /features for complete documentation
         """
+        
         keyboard = [
             [InlineKeyboardButton("✨ View Features", callback_data='features')],
-            [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
+            [InlineKeyboardButton("🛍️ Get More Keys", callback_data='buy_api')],
             [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -562,26 +626,11 @@ Maintain multi-turn conversations with full context.
 *4️⃣ Text Analysis*
 Analyze sentiment, extract keywords, understand content.
 
-```bash
-POST /analyze
-{"text": "...", "type": "sentiment"}
-```
-
 *5️⃣ Content Summarization*
 Create concise, bullet-point, or detailed summaries.
 
-```bash
-POST /summarize
-{"content": "...", "type": "bullet-points"}
-```
-
 *6️⃣ Streaming Responses*
 Real-time response generation for better UX.
-
-```bash
-POST /chat/stream
-{"question": "..."}
-```
 
 *7️⃣ Rate Limiting*
 ✅ Free: 100 requests/hour
@@ -611,35 +660,34 @@ async def usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         edit_message = False
     
-    user = db.get_user_by_telegram_id(user_id)
+    keys = db.get_active_api_keys(user_id)
     
-    if not user:
-        message = "❌ No API key found. Use /buy to get one!"
+    if not keys:
+        message = "❌ No active API keys found. Use /buy to get one!"
         keyboard = [[InlineKeyboardButton("🛍️ Buy API", callback_data='buy_api')]]
     else:
-        plan_info = PLANS.get(user['plan'], {})
+        total_requests = sum(k.get('requests_used', 0) for k in keys)
+        
         message = f"""
 📈 *API Usage Statistics*
 
-*Plan:* {user['plan'].upper()}
-*Status:* {'✅ Active' if user['is_active'] else '❌ Inactive'}
-*Total Requests:* {user['requests_used']}
-*Created:* {user['created_at'][:10]}
+*Total API Keys:* {len(keys)}
+*Total Requests:* {total_requests}
 
-*API Key:* `{user['api_key'][:15]}...`
-
-*Plan Benefits:*
+*Keys Breakdown:*
 """
-        for feature in plan_info.get('features', []):
-            message += f"✅ {feature}\n"
+        for key in keys:
+            plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+            expiry_info = format_expiry(key.get('expiry_date'))
+            
+            message += f"\n{plan_emoji} *{key.get('plan', 'N/A').upper()}*\n"
+            message += f"  Status: {'✅ Active' if key.get('is_active') else '❌ Inactive'}\n"
+            message += f"  Requests: {key.get('requests_used', 0)}\n"
+            message += f"  Expiry: {expiry_info}\n"
         
-        message += f"""
-
-*Status:* {'🟢 All features available!' if user['plan'] != 'free' else '🟡 Upgrade for more features'}
-        """
         keyboard = [
-            [InlineKeyboardButton("🔑 My API Key", callback_data='my_api')],
-            [InlineKeyboardButton("✨ Upgrade Plan", callback_data='buy_api')],
+            [InlineKeyboardButton("🔑 My API Keys", callback_data='my_api')],
+            [InlineKeyboardButton("✨ Get More Keys", callback_data='buy_api')],
             [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
         ]
     
@@ -667,7 +715,7 @@ What would you like to do?
         """
         keyboard = [
             [InlineKeyboardButton("👑 Admin Panel", callback_data='admin_panel')],
-            [InlineKeyboardButton("🔑 My API Key", callback_data='my_api')],
+            [InlineKeyboardButton("🔑 My API Keys", callback_data='my_api')],
             [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
             [InlineKeyboardButton("✨ View Features", callback_data='features')]
         ]
@@ -681,7 +729,7 @@ What would you like to do?
         """
         keyboard = [
             [InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')],
-            [InlineKeyboardButton("🔑 My API Key", callback_data='my_api')],
+            [InlineKeyboardButton("🔑 My API Keys", callback_data='my_api')],
             [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
             [InlineKeyboardButton("✨ View Features", callback_data='features')]
         ]
@@ -694,67 +742,51 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if is_admin(user_id):
-        help_text = """
+        help_text = f"""
 👑 *Admin Help & Documentation*
 
 *Admin Commands:*
 /admin - Open Admin Panel
 /stats - View System Statistics
-/users - List All Users
 
 *User Commands:*
 /start - Start the bot
 /buy - Purchase API access
-/myapi - View your API key
+/myapi - View your API keys
 /usage - Check usage statistics
 /features - View all features
 /help - Show this help
 
-*API Endpoints:*
-• POST /chat - Chat with AI
-• POST /chat/stream - Streaming responses
-• GET /chat/history - View history
-• POST /analyze - Text analysis
-• POST /summarize - Content summary
-• GET /health - Status check
-
 *Admin Features:*
-👥 View all users
-📊 System statistics
-📢 Broadcast messages
-🔑 Manage API keys
+• View all API keys
+• System statistics
+• Manage expiry dates
+• Clean expired keys
+• Free plan: {DEFAULT_FREE_EXPIRY_DAYS} days validity
 
-*Need Help?*
-You are the admin!
+*Multiple Keys:*
+Users can have Free + Premium keys simultaneously.
+Cannot have multiple keys of same plan type.
         """
     else:
-        help_text = """
+        help_text = f"""
 📚 *Help & Documentation*
 
 *Commands:*
 /start - Start the bot
 /buy - Purchase API access
-/myapi - View your API key
+/myapi - View your API keys
 /usage - Check usage statistics
 /features - View all features
 /help - Show this help
 
-*API Endpoints:*
-• POST /chat - Chat with AI (multi-lang, tone control, context)
-• POST /chat/stream - Streaming responses
-• GET /chat/history - View conversation history
-• POST /analyze - Text sentiment & analysis
-• POST /summarize - Content summarization
-• POST /chat/clear - Clear conversation history
-• GET /health - Status check
+*Plans:*
+• Free: ₹0 (valid for {DEFAULT_FREE_EXPIRY_DAYS} days)
+• Basic: ₹99/month
+• Pro: ₹299/month
 
-*Premium Features:*
-🌍 8+ Languages
-💬 Tone Control
-📚 Conversation History
-🔍 Text Analysis
-📝 Summarization
-⚡ Streaming
+*Multiple Keys:*
+You can have both Free and Premium keys!
 
 *Need Help?*
 Contact admin for support.
@@ -776,7 +808,8 @@ def main():
     
     # Callback handlers
     application.add_handler(CallbackQueryHandler(admin_panel, pattern='^admin_panel$'))
-    application.add_handler(CallbackQueryHandler(admin_users, pattern='^admin_users$'))
+    application.add_handler(CallbackQueryHandler(admin_all_keys, pattern='^admin_keys$'))
+    application.add_handler(CallbackQueryHandler(admin_clean_expired, pattern='^admin_clean$'))
     application.add_handler(CallbackQueryHandler(admin_stats, pattern='^admin_stats$'))
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
     application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
@@ -786,7 +819,7 @@ def main():
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
     
     # Start bot
-    logger.info("Bot started with admin features...")
+    logger.info(f"Bot started with admin features... Free plan validity: {DEFAULT_FREE_EXPIRY_DAYS} days")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
