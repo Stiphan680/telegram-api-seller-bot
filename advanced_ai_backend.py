@@ -20,13 +20,19 @@ class AdvancedAIBackend:
         """Initialize multiple AI providers for redundancy and features"""
         
         # Configure Gemini (Free, High Quality)
-        genai.configure(api_key=os.getenv('GEMINI_API_KEY', 'YOUR_GEMINI_KEY'))
+        gemini_key = os.getenv('GEMINI_API_KEY', '')
+        if gemini_key:
+            genai.configure(api_key=gemini_key)
         
-        # Configure Groq (Free, Ultra Fast)
-        self.groq_client = Groq(api_key=os.getenv('GROQ_API_KEY', 'YOUR_GROQ_KEY'))
+        # Configure Groq (Free, Ultra Fast) - FIX: Remove self._client parameter
+        groq_key = os.getenv('GROQ_API_KEY', '')
+        if groq_key:
+            self.groq_client = Groq(api_key=groq_key)  # Fixed: removed invalid parameter
+        else:
+            self.groq_client = None
         
         # Configure HuggingFace (Free)
-        self.hf_api_key = os.getenv('HUGGINGFACE_API_KEY', 'YOUR_HF_KEY')
+        self.hf_api_key = os.getenv('HUGGINGFACE_API_KEY', '')
         
         # Models configuration
         self.models = {
@@ -122,7 +128,7 @@ class AdvancedAIBackend:
         
         # For code-related queries, prefer Groq (faster)
         code_keywords = ['code', 'python', 'javascript', 'function', 'class', 'api', 'debug']
-        if any(kw in question.lower() for kw in code_keywords):
+        if any(kw in question.lower() for kw in code_keywords) and self.groq_client:
             return 'groq'
         
         # For creative tasks, use Gemini
@@ -219,6 +225,10 @@ class AdvancedAIBackend:
                             temperature: float, max_tokens: int) -> str:
         """Get response from Groq (Ultra Fast)"""
         
+        if not self.groq_client:
+            # Fallback to Gemini if Groq not available
+            return await self._gemini_response(prompt, temperature, max_tokens)
+        
         model_map = {
             'groq': 'llama-3.3-70b-versatile',
             'mixtral': 'mixtral-8x7b-32768'
@@ -248,7 +258,7 @@ class AdvancedAIBackend:
                     if chunk.text:
                         yield f"data: {json.dumps({'text': chunk.text})}\n\n"
             
-            elif model_name in ['groq', 'mixtral']:
+            elif model_name in ['groq', 'mixtral'] and self.groq_client:
                 model_map = {
                     'groq': 'llama-3.3-70b-versatile',
                     'mixtral': 'mixtral-8x7b-32768'
@@ -281,7 +291,8 @@ class AdvancedAIBackend:
             'success': False,
             'response': fallback_text.get(language, fallback_text['english']),
             'error': 'All models unavailable',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'fallback_needed': True
         }
     
     def _update_conversation(self, user_id: str, user_msg: str, assistant_msg: str):
@@ -366,7 +377,11 @@ class AdvancedAIBackend:
             return {'success': False, 'error': 'Provide either code or task'}
         
         try:
-            response = await self._groq_response('groq', prompt, 0.2, 3000)
+            # Use Groq if available for code tasks (faster)
+            if self.groq_client:
+                response = await self._groq_response('groq', prompt, 0.2, 3000)
+            else:
+                response = await self._gemini_response(prompt, 0.2, 3000)
             
             return {
                 'success': True,
