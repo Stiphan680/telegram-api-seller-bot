@@ -1,17 +1,9 @@
-# Core Dependencies
-Flask==3.0.0
-gunicorn==21.2.0
-python-telegram-bot==21.0
+python-telegram-bot==20.7
 pymongo==4.6.1
-
-# AI/ML Libraries (FREE APIs)
-google-generativeai==0.8.0
-groq==0.11.0
-
-# Async Support (eventlet is more compatible than gevent)
-aiohttp==3.9.1
-eventlet==0.36.1
-
-# Utilities
 python-dotenv==1.0.0
 requests==2.31.0
+aiohttp==3.9.1
+google-generativeai==0.3.2
+groq==0.4.1
+Flask==3.0.0
+razorpay==1.4.1
