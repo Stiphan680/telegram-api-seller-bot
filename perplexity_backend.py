@@ -18,7 +18,13 @@ class PerplexityBackend:
         Args:
             api_key: Perplexity API key (default from env PERPLEXITY_API_KEY)
         """
-        self.api_key = api_key or os.getenv('PERPLEXITY_API_KEY')
+        # Load from environment if not provided
+        self.api_key = api_key or os.environ.get('PERPLEXITY_API_KEY') or os.getenv('PERPLEXITY_API_KEY')
+        
+        # Clean the key (remove spaces/newlines)
+        if self.api_key:
+            self.api_key = self.api_key.strip()
+        
         self.api_url = 'https://api.perplexity.ai/chat/completions'
         
         # Available models
@@ -42,10 +48,32 @@ class PerplexityBackend:
             'professional': "You are a professional AI assistant. Provide formal, well-structured responses.",
             'code': "You are a coding assistant. Provide clean code with explanations."
         }
+        
+        # Debug log
+        if self.api_key:
+            print(f"✅ Perplexity API key loaded: {self.api_key[:10]}...{self.api_key[-4:]}")
+            print(f"✅ Key length: {len(self.api_key)} chars")
+            print(f"✅ Key starts with 'pplx-': {self.api_key.startswith('pplx-')}")
+        else:
+            print("❌ Perplexity API key not found in environment")
     
     def is_available(self) -> bool:
         """Check if Perplexity API is configured and available"""
-        return bool(self.api_key and self.api_key.startswith('pplx-'))
+        if not self.api_key:
+            print("❌ Perplexity: No API key")
+            return False
+        
+        if not self.api_key.startswith('pplx-'):
+            print(f"❌ Perplexity: Invalid key format (must start with 'pplx-')")
+            print(f"   Current key starts with: {self.api_key[:10]}...")
+            return False
+        
+        if len(self.api_key) < 30:
+            print(f"❌ Perplexity: Key too short ({len(self.api_key)} chars, need 30+)")
+            return False
+        
+        print("✅ Perplexity: API key valid and available")
+        return True
     
     async def get_response(
         self,
@@ -122,9 +150,17 @@ class PerplexityBackend:
             )
             
             if response.status_code != 200:
+                error_msg = f'API error: {response.status_code}'
+                try:
+                    error_detail = response.json()
+                    error_msg = f'{error_msg} - {error_detail}'
+                except:
+                    pass
+                
+                print(f"❌ Perplexity API error: {error_msg}")
                 return {
                     'success': False,
-                    'error': f'API error: {response.status_code}',
+                    'error': error_msg,
                     'fallback_needed': True
                 }
             
@@ -145,6 +181,8 @@ class PerplexityBackend:
             if include_context and user_id:
                 self._update_conversation(user_id, question, assistant_message)
             
+            print(f"✅ Perplexity response: {len(assistant_message)} chars, {latency:.2f}s")
+            
             return {
                 'success': True,
                 'response': assistant_message,
@@ -157,12 +195,14 @@ class PerplexityBackend:
             }
             
         except requests.exceptions.Timeout:
+            print("❌ Perplexity: Request timeout")
             return {
                 'success': False,
                 'error': 'Request timeout',
                 'fallback_needed': True
             }
         except Exception as e:
+            print(f"❌ Perplexity error: {e}")
             return {
                 'success': False,
                 'error': str(e),
@@ -296,14 +336,17 @@ async def test_perplexity():
     """Test Perplexity API"""
     backend = get_perplexity_backend()
     
+    print("\n🔍 Testing Perplexity Backend...\n")
+    
     if not backend.is_available():
-        print("❌ Perplexity API not configured")
+        print("❌ Perplexity API not configured or invalid")
         return
     
     print("✅ Perplexity API configured")
     print(f"📊 Stats: {backend.get_stats()}")
     
     # Test query
+    print("\n📝 Testing query...")
     result = await backend.get_response(
         "What's the latest news about AI?",
         model='sonar',
