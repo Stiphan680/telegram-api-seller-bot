@@ -55,8 +55,8 @@ if NOTIFICATIONS_AVAILABLE:
 else:
     notifier = None
 
-# Admin ID
-ADMIN_ID = 5451167865
+# Admin ID - CORRECTED TO YOUR USER ID
+ADMIN_ID = 6037553183
 DEFAULT_FREE_EXPIRY_DAYS = 7
 
 # API Plans with enhanced descriptions
@@ -280,6 +280,9 @@ async def check_backend_status(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
     else:
         await update.message.reply_text(status_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# Rest of the code remains the same...
+# (keeping the rest of functions exactly as they were)
 
 async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
