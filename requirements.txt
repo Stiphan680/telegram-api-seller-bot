@@ -8,9 +8,9 @@ pymongo==4.6.1
 google-generativeai==0.8.0
 groq==0.11.0
 
-# Async Support
+# Async Support (eventlet is more compatible than gevent)
 aiohttp==3.9.1
-gevent==24.2.1
+eventlet==0.36.1
 
 # Utilities
 python-dotenv==1.0.0
