@@ -71,7 +71,7 @@ class Database:
         
         # Calculate expiry date
         expiry_date = None
-        if expiry_days:
+        if expiry_days and expiry_days > 0:
             expiry_date = (datetime.now() + timedelta(days=expiry_days)).isoformat()
         
         key_data = {
@@ -115,14 +115,33 @@ class Database:
             print(f"Error deleting API keys: {e}")
             return 0
     
-    def create_gift_card(self, plan, max_uses, expiry_days=None, created_by=None, note=""):
-        """Create a gift card for redeeming API keys"""
+    def create_gift_card(self, plan, max_uses, card_expiry_days=None, api_expiry_days=None, created_by=None, note=""):
+        """
+        Create a gift card for redeeming API keys
+        
+        Args:
+            plan: Plan type (free/basic/pro)
+            max_uses: Maximum number of redemptions
+            card_expiry_days: Days until gift card expires (None = no expiry)
+            api_expiry_days: Days until generated API keys expire (None = permanent, 0 = permanent)
+            created_by: Admin telegram ID
+            note: Optional note
+        """
         code = self.generate_gift_code()
         
         # Calculate expiry date for gift card itself
         card_expiry = None
-        if expiry_days:
-            card_expiry = (datetime.now() + timedelta(days=expiry_days)).isoformat()
+        if card_expiry_days and card_expiry_days > 0:
+            card_expiry = (datetime.now() + timedelta(days=card_expiry_days)).isoformat()
+        
+        # Set API key expiry - None means permanent
+        if api_expiry_days is None:
+            # Default based on plan if not specified
+            api_expiry_days = 7 if plan == 'free' else None  # None = permanent for premium
+        elif api_expiry_days == 0:
+            # 0 explicitly means permanent
+            api_expiry_days = None
+        # else use the provided value
         
         gift_data = {
             'code': code,
@@ -132,7 +151,7 @@ class Database:
             'used_by': [],  # List of telegram_ids who used it
             'is_active': True,
             'card_expiry': card_expiry,  # When gift card expires
-            'api_expiry_days': 30 if plan != 'free' else 7,  # Default API key expiry when redeemed
+            'api_expiry_days': api_expiry_days,  # Days until API keys expire (None = permanent)
             'created_by': created_by,
             'note': note,
             'created_at': datetime.now().isoformat(),
@@ -205,6 +224,27 @@ class Database:
             print(f"Error redeeming gift card: {e}")
             return {'success': False, 'error': str(e)}
     
+    def update_gift_card_api_expiry(self, code, api_expiry_days):
+        """Update API key expiry days for a gift card"""
+        try:
+            # Convert 0 or negative to None (permanent)
+            if api_expiry_days is not None and api_expiry_days <= 0:
+                api_expiry_days = None
+            
+            self.gift_cards.update_one(
+                {'code': code.upper()},
+                {
+                    '$set': {
+                        'api_expiry_days': api_expiry_days,
+                        'updated_at': datetime.now().isoformat()
+                    }
+                }
+            )
+            return True
+        except Exception as e:
+            print(f"Error updating gift card: {e}")
+            return False
+    
     def get_gift_card(self, code):
         """Get gift card details"""
         try:
@@ -217,7 +257,7 @@ class Database:
     def get_all_gift_cards(self):
         """Get all gift cards (admin)"""
         try:
-            gifts = list(self.gift_cards.find())
+            gifts = list(self.gift_cards.find().sort('created_at', -1))
             return gifts
         except Exception as e:
             print(f"Error getting gift cards: {e}")
