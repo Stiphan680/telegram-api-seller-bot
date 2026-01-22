@@ -28,13 +28,13 @@ class NotificationManager:
         self.channel_id = channel_id
         self.enabled = True
     
-    async def send_notification(self, message: str, parse_mode: str = 'Markdown'):
+    async def send_notification(self, message: str, parse_mode: str = None):
         """
         Send notification to channel
         
         Args:
             message: Message text
-            parse_mode: Markdown or HTML
+            parse_mode: Markdown or HTML (None for plain text)
         """
         if not self.enabled:
             return False
@@ -49,6 +49,18 @@ class NotificationManager:
             return True
         except TelegramError as e:
             logger.error(f"❌ Failed to send notification: {e}")
+            # Try without formatting if markdown fails
+            if parse_mode:
+                try:
+                    await self.bot.send_message(
+                        chat_id=self.channel_id,
+                        text=message,
+                        parse_mode=None
+                    )
+                    logger.info("✅ Notification sent (plain text fallback)")
+                    return True
+                except:
+                    pass
             return False
     
     async def notify_bot_started(self, backend_info: dict = None):
@@ -58,18 +70,17 @@ class NotificationManager:
         backend_text = ""
         if backend_info:
             backends = backend_info.get('available_backends', [])
-            backend_text = f"\n🤖 *Backends:* {', '.join(backends)}"
+            backend_text = f"\nBackends: {', '.join(backends)}"
         
-        message = f"""
-🚀 *Bot Started Successfully!*
+        message = f"""🚀 Bot Started Successfully!
 
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{backend_text}
-✅ Status: Running
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}{backend_text}
+Status: Running
 
-_Bot is now live and ready to serve users!_
+Bot is now live and ready to serve users!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_new_api_key(self, username: str, user_id: int, plan: str, backend: str = None):
         """
@@ -81,135 +92,127 @@ _Bot is now live and ready to serve users!_
             'pro': '⭐'
         }.get(plan, '❓')
         
-        backend_text = f"\n🤖 Backend: {backend}" if backend else ""
+        backend_text = f"\nBackend: {backend}" if backend else ""
         
-        message = f"""
-🔑 *New API Key Created!*
+        message = f"""🔑 New API Key Created!
 
-{plan_emoji} Plan: *{plan.upper()}*
-👤 User: @{username} (ID: {user_id}){backend_text}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+{plan_emoji} Plan: {plan.upper()}
+User: @{username} (ID: {user_id}){backend_text}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_Total active keys increased!_
+Total active keys increased!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_feature_added(self, feature_name: str, description: str = None):
         """
         Notify when new feature is added
         """
-        desc_text = f"\n\n📝 {description}" if description else ""
+        desc_text = f"\n\n{description}" if description else ""
         
-        message = f"""
-✨ *New Feature Added!*
+        message = f"""✨ New Feature Added!
 
-🎯 Feature: *{feature_name}*{desc_text}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Feature: {feature_name}{desc_text}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_Bot functionality enhanced!_
+Bot functionality enhanced!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_deployment(self, version: str = None, changes: str = None):
         """
         Notify when bot is deployed
         """
         version_text = f" v{version}" if version else ""
-        changes_text = f"\n\n📋 Changes:\n{changes}" if changes else ""
+        changes_text = f"\n\nChanges:\n{changes}" if changes else ""
         
-        message = f"""
-🚀 *Bot Deployed{version_text}!*
+        message = f"""🚀 Bot Deployed{version_text}!
 
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-✅ Status: Live{changes_text}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Status: Live{changes_text}
 
-_Deployment successful!_
+Deployment successful!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_error(self, error_msg: str, context: str = None):
         """
         Notify about critical errors
         """
-        context_text = f"\n\n🔍 Context: {context}" if context else ""
+        context_text = f"\n\nContext: {context}" if context else ""
         
-        message = f"""
-⚠️ *Bot Error Alert!*
+        message = f"""⚠️ Bot Error Alert!
 
-❌ Error: {error_msg}{context_text}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Error: {error_msg}{context_text}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_Immediate attention required!_
+Immediate attention required!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_stats(self, total_users: int, total_keys: int, total_requests: int):
         """
         Send daily/periodic stats
         """
-        message = f"""
-📊 *Bot Statistics Update*
+        message = f"""📊 Bot Statistics Update
 
-👥 Total Users: {total_users}
-🔑 Total API Keys: {total_keys}
-📈 Total Requests: {total_requests}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Total Users: {total_users}
+Total API Keys: {total_keys}
+Total Requests: {total_requests}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_Bot performing well!_
+Bot performing well!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_upgrade(self, username: str, old_plan: str, new_plan: str):
         """
         Notify when user upgrades plan
         """
-        message = f"""
-⬆️ *Plan Upgraded!*
+        message = f"""⬆️ Plan Upgraded!
 
-👤 User: @{username}
-📦 From: {old_plan.upper()} → {new_plan.upper()}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+User: @{username}
+From: {old_plan.upper()} to {new_plan.upper()}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_User upgraded to premium!_
+User upgraded to premium!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_backend_change(self, old_backend: str, new_backend: str, reason: str = None):
         """
         Notify when AI backend changes
         """
-        reason_text = f"\n\n📝 Reason: {reason}" if reason else ""
+        reason_text = f"\n\nReason: {reason}" if reason else ""
         
-        message = f"""
-🔄 *Backend Changed!*
+        message = f"""🔄 Backend Changed!
 
-🤖 From: {old_backend}
-🤖 To: {new_backend}{reason_text}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+From: {old_backend}
+To: {new_backend}{reason_text}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-_Backend switched automatically!_
+Backend switched automatically!
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     async def notify_maintenance(self, message_text: str):
         """
         Send maintenance notification
         """
-        message = f"""
-🔧 *Maintenance Alert*
+        message = f"""🔧 Maintenance Alert
 
 {message_text}
-⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         """
         
-        await self.send_notification(message)
+        await self.send_notification(message, parse_mode=None)
     
     def disable_notifications(self):
         """Disable notifications"""
