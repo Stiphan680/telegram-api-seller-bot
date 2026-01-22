@@ -1,6 +1,6 @@
 """
-Perplexity AI Backend - Premium Search + AI
-Easily switchable - can be enabled/disabled without affecting other backends
+Perplexity API Backend
+Separate module for Perplexity integration - Easy to enable/disable
 """
 
 import os
@@ -12,53 +12,64 @@ from typing import Optional, Dict, List, Any
 
 class PerplexityBackend:
     def __init__(self, api_key: str = None):
-        """Initialize Perplexity AI client"""
-        self.api_key = api_key or os.getenv('PERPLEXITY_API_KEY', '')
-        self.base_url = "https://api.perplexity.ai"
-        self.chat_endpoint = f"{self.base_url}/chat/completions"
+        """
+        Initialize Perplexity API
         
-        # Available Perplexity models
+        Args:
+            api_key: Perplexity API key (default from env PERPLEXITY_API_KEY)
+        """
+        self.api_key = api_key or os.getenv('PERPLEXITY_API_KEY')
+        self.api_url = 'https://api.perplexity.ai/chat/completions'
+        
+        # Available models
         self.models = {
-            'sonar': 'sonar',  # Best for search + reasoning
-            'sonar-pro': 'sonar-pro',  # Premium model
-            'sonar-reasoning': 'sonar-reasoning',  # Deep reasoning
+            'sonar': 'llama-3.1-sonar-small-128k-online',  # Fast, online search
+            'sonar-pro': 'llama-3.1-sonar-large-128k-online',  # Better quality
+            'sonar-huge': 'llama-3.1-sonar-huge-128k-online',  # Best quality
+            'chat': 'llama-3.1-8b-instruct',  # Fast chat without search
+            'chat-large': 'llama-3.1-70b-instruct'  # Better chat without search
         }
-        
-        # Default model
-        self.default_model = 'sonar'
         
         # Conversation memory
         self.conversations = {}
         self.max_history = 10
         
-        if self.api_key:
-            print(f"✅ Perplexity Backend initialized with API key: {self.api_key[:10]}...")
-        else:
-            print("⚠️ Perplexity API key not configured")
+        # System prompts
+        self.system_prompts = {
+            'default': "You are a helpful AI assistant powered by Perplexity. Be accurate, concise, and cite sources when available.",
+            'search': "You are a search assistant. Provide accurate information with sources and links.",
+            'creative': "You are a creative AI assistant. Be imaginative and engaging.",
+            'professional': "You are a professional AI assistant. Provide formal, well-structured responses.",
+            'code': "You are a coding assistant. Provide clean code with explanations."
+        }
     
     def is_available(self) -> bool:
-        """Check if Perplexity API is available"""
-        return bool(self.api_key and len(self.api_key) > 20)
+        """Check if Perplexity API is configured and available"""
+        return bool(self.api_key and self.api_key.startswith('pplx-'))
     
-    def get_response(self, 
-                    question: str,
-                    user_id: str = None,
-                    model: str = None,
-                    temperature: float = 0.7,
-                    max_tokens: int = 4096,
-                    include_context: bool = False,
-                    search_mode: bool = True) -> Dict[str, Any]:
+    async def get_response(
+        self,
+        question: str,
+        user_id: str = None,
+        model: str = 'sonar',  # Default: Fast online search
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+        include_context: bool = False,
+        search_online: bool = True,
+        tone: str = 'default'
+    ) -> Dict[str, Any]:
         """
-        Get AI response from Perplexity
+        Get response from Perplexity API
         
         Args:
-            question: User question
-            user_id: User ID for conversation tracking
-            model: Model name (sonar, sonar-pro, sonar-reasoning)
-            temperature: Creativity (0-1)
+            question: User's question
+            user_id: For conversation context
+            model: Model to use (sonar/sonar-pro/chat)
+            temperature: 0.0-1.0 (creativity)
             max_tokens: Max response length
             include_context: Include conversation history
-            search_mode: Use internet search (recommended for Perplexity)
+            search_online: Use online search (sonar models)
+            tone: Response tone
         
         Returns:
             Dict with response and metadata
@@ -67,167 +78,129 @@ class PerplexityBackend:
         if not self.is_available():
             return {
                 'success': False,
-                'error': 'Perplexity API key not configured',
-                'fallback': True
+                'error': 'Perplexity API not configured',
+                'fallback_needed': True
             }
         
         try:
-            # Get conversation history if context enabled
-            messages = []
+            start_time = time.time()
             
-            if include_context and user_id and user_id in self.conversations:
-                # Add conversation history
-                history = self.conversations[user_id][-6:]  # Last 3 exchanges
-                for msg in history:
-                    messages.append({"role": "user", "content": msg['user']})
-                    messages.append({"role": "assistant", "content": msg['assistant']})
+            # Build messages
+            messages = self._build_messages(
+                question, user_id, include_context, tone
+            )
             
-            # Add current question
-            messages.append({"role": "user", "content": question})
+            # Select model
+            model_name = self.models.get(model, self.models['sonar'])
             
-            # Prepare request
+            # If online search not needed, use chat models
+            if not search_online:
+                model_name = self.models['chat']
+            
+            # Make API request
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                'Authorization': f'Bearer {self.api_key}',
+                'Content-Type': 'application/json'
             }
             
             payload = {
-                "model": model or self.default_model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "top_p": 0.9,
-                "stream": False,
-                "search_domain_filter": [],  # Empty = search all domains
-                "return_images": False,
-                "return_related_questions": False,
-                "search_recency_filter": "month",  # month, week, day
-                "top_k": 0,
-                "presence_penalty": 0,
-                "frequency_penalty": 1
+                'model': model_name,
+                'messages': messages,
+                'temperature': temperature,
+                'max_tokens': max_tokens,
+                'top_p': 0.9,
+                'return_citations': search_online,  # Get sources
+                'search_recency_filter': 'month',  # Recent results
+                'stream': False
             }
             
-            # Make API call
-            start_time = time.time()
             response = requests.post(
-                self.chat_endpoint,
+                self.api_url,
                 headers=headers,
                 json=payload,
-                timeout=60
+                timeout=30
             )
-            latency = time.time() - start_time
             
-            # Check response
             if response.status_code != 200:
-                error_msg = f"Perplexity API error: {response.status_code}"
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get('error', {}).get('message', error_msg)
-                except:
-                    pass
-                
                 return {
                     'success': False,
-                    'error': error_msg,
-                    'fallback': True,
-                    'status_code': response.status_code
+                    'error': f'API error: {response.status_code}',
+                    'fallback_needed': True
                 }
             
-            # Parse response
-            data = response.json()
+            result = response.json()
             
-            ai_response = data['choices'][0]['message']['content']
+            # Extract response
+            assistant_message = result['choices'][0]['message']['content']
             
             # Extract citations if available
             citations = []
-            if 'citations' in data:
-                citations = data['citations']
+            if 'citations' in result:
+                citations = result['citations']
             
-            # Update conversation history
+            # Calculate latency
+            latency = time.time() - start_time
+            
+            # Save to conversation history
             if include_context and user_id:
-                self._update_conversation(user_id, question, ai_response)
+                self._update_conversation(user_id, question, assistant_message)
             
             return {
                 'success': True,
-                'response': ai_response,
-                'model': data.get('model', model or self.default_model),
+                'response': assistant_message,
                 'citations': citations,
-                'usage': data.get('usage', {}),
+                'model': model_name,
                 'latency': round(latency, 2),
-                'timestamp': datetime.now().isoformat(),
-                'backend': 'perplexity'
+                'tokens_used': result.get('usage', {}).get('total_tokens', 0),
+                'online_search': search_online,
+                'timestamp': datetime.now().isoformat()
             }
             
         except requests.exceptions.Timeout:
             return {
                 'success': False,
-                'error': 'Perplexity API timeout',
-                'fallback': True
-            }
-        except requests.exceptions.RequestException as e:
-            return {
-                'success': False,
-                'error': f'Network error: {str(e)}',
-                'fallback': True
+                'error': 'Request timeout',
+                'fallback_needed': True
             }
         except Exception as e:
             return {
                 'success': False,
-                'error': f'Perplexity error: {str(e)}',
-                'fallback': True
+                'error': str(e),
+                'fallback_needed': True
             }
     
-    def search(self, query: str, recency: str = "month") -> Dict[str, Any]:
-        """
-        Perplexity-optimized search with AI reasoning
+    def _build_messages(
+        self,
+        question: str,
+        user_id: str,
+        include_context: bool,
+        tone: str
+    ) -> List[Dict[str, str]]:
+        """Build message array for API"""
         
-        Args:
-            query: Search query
-            recency: Time filter (month, week, day)
+        messages = []
         
-        Returns:
-            Search results with AI summary
-        """
+        # Add system prompt
+        system_prompt = self.system_prompts.get(tone, self.system_prompts['default'])
+        messages.append({
+            'role': 'system',
+            'content': system_prompt
+        })
         
-        # Enhance query for better search results
-        search_prompt = f"Search and provide detailed information about: {query}"
+        # Add conversation history if enabled
+        if include_context and user_id:
+            history = self.conversations.get(user_id, [])
+            for msg in history[-6:]:  # Last 3 exchanges
+                messages.append({'role': 'user', 'content': msg['user']})
+                messages.append({'role': 'assistant', 'content': msg['assistant']})
         
-        return self.get_response(
-            question=search_prompt,
-            model='sonar',  # Best for search
-            search_mode=True,
-            temperature=0.5  # Lower for factual responses
-        )
-    
-    def reasoning(self, question: str, depth: str = "normal") -> Dict[str, Any]:
-        """
-        Deep reasoning mode for complex questions
+        # Add current question
+        messages.append({
+            'role': 'user',
+            'content': question
+        })
         
-        Args:
-            question: Complex question requiring reasoning
-            depth: Reasoning depth (normal, deep)
-        
-        Returns:
-            Detailed reasoning response
-        """
-        
-        model = 'sonar-reasoning' if depth == 'deep' else 'sonar'
-        
-        reasoning_prompt = f"""Think step-by-step and provide detailed reasoning:
-
-Question: {question}
-
-Provide:
-1. Analysis
-2. Step-by-step reasoning
-3. Conclusion"""
-        
-        return self.get_response(
-            question=reasoning_prompt,
-            model=model,
-            temperature=0.4,
-            max_tokens=6000
-        )
+        return messages
     
     def _update_conversation(self, user_id: str, user_msg: str, assistant_msg: str):
         """Update conversation history"""
@@ -250,42 +223,102 @@ Provide:
         if user_id in self.conversations:
             del self.conversations[user_id]
     
+    async def search(
+        self,
+        query: str,
+        max_results: int = 5
+    ) -> Dict[str, Any]:
+        """Quick search with Perplexity"""
+        
+        search_prompt = f"Search and summarize: {query}\n\nProvide concise summary with key points and sources."
+        
+        return await self.get_response(
+            question=search_prompt,
+            model='sonar',
+            search_online=True,
+            temperature=0.3
+        )
+    
+    async def analyze_with_sources(
+        self,
+        topic: str,
+        depth: str = 'medium'
+    ) -> Dict[str, Any]:
+        """Detailed analysis with citations"""
+        
+        depth_map = {
+            'quick': 'Brief summary in 2-3 sentences',
+            'medium': 'Detailed analysis in 5-7 points',
+            'deep': 'Comprehensive analysis with all aspects'
+        }
+        
+        prompt = f"{depth_map.get(depth, depth_map['medium'])}\n\nTopic: {topic}\n\nInclude sources and citations."
+        
+        return await self.get_response(
+            question=prompt,
+            model='sonar-pro',
+            search_online=True,
+            temperature=0.2
+        )
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get backend statistics"""
         return {
-            'backend': 'perplexity',
-            'available': self.is_available(),
-            'models': list(self.models.keys()),
-            'default_model': self.default_model,
+            'backend': 'Perplexity',
+            'api_configured': self.is_available(),
             'active_conversations': len(self.conversations),
-            'api_key_configured': bool(self.api_key)
+            'available_models': list(self.models.keys()),
+            'features': [
+                'Online Search',
+                'Citations',
+                'Multi-model',
+                'Conversation Context',
+                'Recent Data (2024+)'
+            ]
         }
 
 
-# Standalone testing
-if __name__ == "__main__":
-    # Test with environment variable
-    backend = PerplexityBackend()
+# Singleton instance
+_perplexity_backend = None
+
+def get_perplexity_backend(api_key: str = None) -> PerplexityBackend:
+    """Get or create Perplexity backend instance"""
+    global _perplexity_backend
     
-    print("\n=== Testing Perplexity Backend ===")
-    print(f"Available: {backend.is_available()}")
-    print(f"Stats: {json.dumps(backend.get_stats(), indent=2)}")
+    if _perplexity_backend is None:
+        _perplexity_backend = PerplexityBackend(api_key)
     
-    if backend.is_available():
-        # Test query
-        print("\n=== Test Query ===")
-        result = backend.get_response(
-            question="What are the latest AI developments in 2026?",
-            user_id="test_user"
-        )
-        
-        if result['success']:
-            print(f"✅ Response: {result['response'][:200]}...")
-            print(f"Model: {result['model']}")
-            print(f"Latency: {result['latency']}s")
-            if result.get('citations'):
-                print(f"Citations: {len(result['citations'])}")
-        else:
-            print(f"❌ Error: {result['error']}")
+    return _perplexity_backend
+
+
+# Quick test function
+async def test_perplexity():
+    """Test Perplexity API"""
+    backend = get_perplexity_backend()
+    
+    if not backend.is_available():
+        print("❌ Perplexity API not configured")
+        return
+    
+    print("✅ Perplexity API configured")
+    print(f"📊 Stats: {backend.get_stats()}")
+    
+    # Test query
+    result = await backend.get_response(
+        "What's the latest news about AI?",
+        model='sonar',
+        search_online=True
+    )
+    
+    if result['success']:
+        print(f"\n✅ Response: {result['response'][:200]}...")
+        print(f"⏱️ Latency: {result['latency']}s")
+        if result.get('citations'):
+            print(f"📚 Citations: {len(result['citations'])} sources")
     else:
-        print("⚠️ Set PERPLEXITY_API_KEY environment variable to test")
+        print(f"❌ Error: {result['error']}")
+
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(test_perplexity())
