@@ -1,6 +1,19 @@
+# Core Dependencies
 Flask==3.0.0
-requests==2.31.0
 gunicorn==21.2.0
-pymongo==4.6.1
 python-telegram-bot==21.0
+pymongo==4.6.1
+
+# AI/ML Libraries
+google-generativeai==0.3.2
+groq==0.4.1
+anthropoc==0.18.1
+openai==1.12.0
+
+# Async Support
+aiohttp==3.9.1
+asyncio==3.4.3
+
+# Utilities
 python-dotenv==1.0.0
+requests==2.31.0
