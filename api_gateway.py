@@ -52,7 +52,7 @@ def home():
     """API Information"""
     return jsonify({
         "message": "API Seller Gateway",
-        "version": "1.0",
+        "version": "2.0",
         "status": "active",
         "endpoints": {
             "/": "GET - API information",
@@ -76,16 +76,16 @@ def chat():
                 "error": "API key required. Add 'X-API-Key' header."
             }), 401
         
-        # Validate API key
-        user = db.validate_api_key(api_key)
-        if not user:
+        # Validate API key (also checks expiry)
+        key_data = db.validate_api_key(api_key)
+        if not key_data:
             return jsonify({
                 "success": False,
                 "error": "Invalid or expired API key"
             }), 401
         
         # Check if key is active
-        if not user['is_active']:
+        if not key_data['is_active']:
             return jsonify({
                 "success": False,
                 "error": "API key is disabled. Contact support."
@@ -115,9 +115,19 @@ def chat():
         # Add usage info to response
         if result['success']:
             result['usage'] = {
-                "requests_used": user['requests_used'] + 1,
-                "plan": user['plan']
+                "requests_used": key_data['requests_used'] + 1,
+                "plan": key_data['plan']
             }
+            
+            # Add expiry info if exists
+            if key_data.get('expiry_date'):
+                try:
+                    expiry = datetime.fromisoformat(key_data['expiry_date'])
+                    days_left = (expiry - datetime.now()).days
+                    result['usage']['expires_in_days'] = max(0, days_left)
+                    result['usage']['expiry_date'] = key_data['expiry_date'][:10]
+                except:
+                    pass
         
         return jsonify(result), 200 if result['success'] else 500
             
@@ -140,21 +150,38 @@ def validate_key():
                 "error": "API key required"
             }), 400
         
-        user = db.validate_api_key(api_key)
+        key_data = db.validate_api_key(api_key)
         
-        if user:
-            return jsonify({
+        if key_data:
+            response_data = {
                 "valid": True,
-                "telegram_id": user['telegram_id'],
-                "plan": user['plan'],
-                "requests_used": user['requests_used'],
-                "is_active": user['is_active'],
-                "created_at": user['created_at']
-            }), 200
+                "telegram_id": key_data['telegram_id'],
+                "plan": key_data['plan'],
+                "requests_used": key_data['requests_used'],
+                "is_active": key_data['is_active'],
+                "created_at": key_data['created_at']
+            }
+            
+            # Add expiry info if exists
+            if key_data.get('expiry_date'):
+                try:
+                    expiry = datetime.fromisoformat(key_data['expiry_date'])
+                    days_left = (expiry - datetime.now()).days
+                    response_data['expiry_date'] = key_data['expiry_date'][:10]
+                    response_data['expires_in_days'] = max(0, days_left)
+                    response_data['is_expired'] = datetime.now() > expiry
+                except:
+                    pass
+            else:
+                response_data['expiry_date'] = None
+                response_data['expires_in_days'] = None
+                response_data['is_expired'] = False
+            
+            return jsonify(response_data), 200
         else:
             return jsonify({
                 "valid": False,
-                "error": "Invalid API key"
+                "error": "Invalid or expired API key"
             }), 401
             
     except Exception as e:
@@ -175,22 +202,44 @@ def get_usage():
                 "error": "API key required in header"
             }), 401
         
-        user = db.validate_api_key(api_key)
-        if not user:
+        key_data = db.validate_api_key(api_key)
+        if not key_data:
             return jsonify({
                 "success": False,
-                "error": "Invalid API key"
+                "error": "Invalid or expired API key"
             }), 401
         
-        return jsonify({
+        response_data = {
             "success": True,
-            "telegram_id": user['telegram_id'],
-            "plan": user['plan'],
-            "requests_used": user['requests_used'],
-            "is_active": user['is_active'],
-            "created_at": user['created_at'],
+            "telegram_id": key_data['telegram_id'],
+            "plan": key_data['plan'],
+            "requests_used": key_data['requests_used'],
+            "is_active": key_data['is_active'],
+            "created_at": key_data['created_at'],
             "api_key": api_key[:10] + "..." + api_key[-5:]  # Masked key
-        }), 200
+        }
+        
+        # Add expiry info if exists
+        if key_data.get('expiry_date'):
+            try:
+                expiry = datetime.fromisoformat(key_data['expiry_date'])
+                now = datetime.now()
+                days_left = (expiry - now).days
+                hours_left = (expiry - now).seconds // 3600
+                
+                response_data['expiry_date'] = key_data['expiry_date'][:10]
+                response_data['expires_in_days'] = max(0, days_left)
+                response_data['expires_in_hours'] = max(0, hours_left) if days_left == 0 else None
+                response_data['is_expired'] = now > expiry
+            except:
+                pass
+        else:
+            response_data['expiry_date'] = None
+            response_data['expires_in_days'] = None
+            response_data['is_expired'] = False
+            response_data['note'] = "No expiry (Permanent until plan renewal)"
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         return jsonify({
@@ -203,7 +252,14 @@ def health():
     """Health check"""
     return jsonify({
         "status": "healthy",
-        "message": "API Gateway is running"
+        "message": "API Gateway is running",
+        "version": "2.0",
+        "features": [
+            "API key validation",
+            "Expiry tracking",
+            "Multiple keys per user",
+            "Usage monitoring"
+        ]
     }), 200
 
 if __name__ == '__main__':
