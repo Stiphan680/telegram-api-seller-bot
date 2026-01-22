@@ -17,13 +17,14 @@ class ManualPaymentHandler:
     def __init__(self):
         # Your payment details - Updated with Aman4380@kphdfc
         self.upi_id = os.getenv('UPI_ID', 'Aman4380@kphdfc')
-        self.admin_username = os.getenv('ADMIN_USERNAME', '@YourAdminHandle')
+        self.admin_username = os.getenv('ADMIN_USERNAME', '@Anonononononon')
         
         # Track pending payments
         self.pending_payments = {}
         
         logger.info("✅ Manual payment system initialized")
         logger.info(f"💳 UPI ID: {self.upi_id}")
+        logger.info(f"👤 Admin: {self.admin_username}")
     
     def create_payment_request(self, 
                               user_id: int,
