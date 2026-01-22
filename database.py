@@ -1,5 +1,7 @@
 import os
 import secrets
+import random
+import string
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from config import Config
@@ -11,15 +13,26 @@ class Database:
         self.db = self.client[Config.DB_NAME]
         self.users = self.db['users']
         self.api_keys = self.db['api_keys']  # Separate collection for API keys
+        self.gift_cards = self.db['gift_cards']  # Gift cards collection
         
         # Create indexes
         self.users.create_index('telegram_id', unique=True)
         self.api_keys.create_index('api_key', unique=True)
         self.api_keys.create_index('telegram_id')
+        self.gift_cards.create_index('code', unique=True)
     
     def generate_api_key(self):
         """Generate a unique API key"""
         return f"sk-{secrets.token_urlsafe(32)}"
+    
+    def generate_gift_code(self):
+        """Generate a unique gift card code"""
+        # Format: GIFT-XXXX-XXXX-XXXX
+        parts = []
+        for _ in range(3):
+            part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+            parts.append(part)
+        return f"GIFT-{'-'.join(parts)}"
     
     def create_user(self, telegram_id, username):
         """Create user if not exists"""
@@ -38,20 +51,21 @@ class Database:
             print(f"Error creating user: {e}")
             return False
     
-    def create_api_key(self, telegram_id, username, plan='free', expiry_days=None):
+    def create_api_key(self, telegram_id, username, plan='free', expiry_days=None, created_by_admin=False):
         """Create new API key for user (allows multiple keys)"""
         # Create user first if not exists
         self.create_user(telegram_id, username)
         
-        # Check if user already has this plan
-        existing_plan_key = self.api_keys.find_one({
-            'telegram_id': telegram_id,
-            'plan': plan,
-            'is_active': True
-        })
-        
-        if existing_plan_key:
-            return None  # Already has active key for this plan
+        # Check if user already has this plan (unless admin is creating)
+        if not created_by_admin:
+            existing_plan_key = self.api_keys.find_one({
+                'telegram_id': telegram_id,
+                'plan': plan,
+                'is_active': True
+            })
+            
+            if existing_plan_key:
+                return None  # Already has active key for this plan
         
         api_key = self.generate_api_key()
         
@@ -68,6 +82,7 @@ class Database:
             'requests_used': 0,
             'is_active': True,
             'expiry_date': expiry_date,
+            'created_by_admin': created_by_admin,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
@@ -78,6 +93,161 @@ class Database:
         except Exception as e:
             print(f"Error creating API key: {e}")
             return None
+    
+    def delete_api_key(self, api_key):
+        """Delete API key permanently"""
+        try:
+            result = self.api_keys.delete_one({'api_key': api_key})
+            return result.deleted_count > 0
+        except Exception as e:
+            print(f"Error deleting API key: {e}")
+            return False
+    
+    def delete_api_key_by_telegram_id(self, telegram_id, plan=None):
+        """Delete API key by telegram ID and optional plan"""
+        try:
+            query = {'telegram_id': telegram_id}
+            if plan:
+                query['plan'] = plan
+            result = self.api_keys.delete_many(query)
+            return result.deleted_count
+        except Exception as e:
+            print(f"Error deleting API keys: {e}")
+            return 0
+    
+    def create_gift_card(self, plan, max_uses, expiry_days=None, created_by=None, note=""):
+        """Create a gift card for redeeming API keys"""
+        code = self.generate_gift_code()
+        
+        # Calculate expiry date for gift card itself
+        card_expiry = None
+        if expiry_days:
+            card_expiry = (datetime.now() + timedelta(days=expiry_days)).isoformat()
+        
+        gift_data = {
+            'code': code,
+            'plan': plan,
+            'max_uses': max_uses,
+            'used_count': 0,
+            'used_by': [],  # List of telegram_ids who used it
+            'is_active': True,
+            'card_expiry': card_expiry,  # When gift card expires
+            'api_expiry_days': 30 if plan != 'free' else 7,  # Default API key expiry when redeemed
+            'created_by': created_by,
+            'note': note,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        try:
+            self.gift_cards.insert_one(gift_data)
+            return code
+        except Exception as e:
+            print(f"Error creating gift card: {e}")
+            return None
+    
+    def redeem_gift_card(self, code, telegram_id, username):
+        """Redeem a gift card and create API key"""
+        try:
+            gift = self.gift_cards.find_one({'code': code.upper()})
+            
+            if not gift:
+                return {'success': False, 'error': 'Invalid gift code'}
+            
+            # Check if active
+            if not gift.get('is_active'):
+                return {'success': False, 'error': 'Gift code is no longer active'}
+            
+            # Check if expired
+            if gift.get('card_expiry'):
+                expiry = datetime.fromisoformat(gift['card_expiry'])
+                if datetime.now() > expiry:
+                    return {'success': False, 'error': 'Gift code has expired'}
+            
+            # Check max uses
+            if gift['used_count'] >= gift['max_uses']:
+                return {'success': False, 'error': 'Gift code has been fully redeemed'}
+            
+            # Check if user already used this code
+            if telegram_id in gift.get('used_by', []):
+                return {'success': False, 'error': 'You have already used this gift code'}
+            
+            # Create API key
+            api_key = self.create_api_key(
+                telegram_id=telegram_id,
+                username=username,
+                plan=gift['plan'],
+                expiry_days=gift.get('api_expiry_days'),
+                created_by_admin=False  # Gift redemption, not admin direct
+            )
+            
+            if not api_key:
+                return {'success': False, 'error': f'You already have an active {gift["plan"]} plan key'}
+            
+            # Update gift card usage
+            self.gift_cards.update_one(
+                {'code': code.upper()},
+                {
+                    '$inc': {'used_count': 1},
+                    '$push': {'used_by': telegram_id},
+                    '$set': {'updated_at': datetime.now().isoformat()}
+                }
+            )
+            
+            return {
+                'success': True,
+                'api_key': api_key,
+                'plan': gift['plan'],
+                'expiry_days': gift.get('api_expiry_days')
+            }
+            
+        except Exception as e:
+            print(f"Error redeeming gift card: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def get_gift_card(self, code):
+        """Get gift card details"""
+        try:
+            gift = self.gift_cards.find_one({'code': code.upper()})
+            return gift
+        except Exception as e:
+            print(f"Error getting gift card: {e}")
+            return None
+    
+    def get_all_gift_cards(self):
+        """Get all gift cards (admin)"""
+        try:
+            gifts = list(self.gift_cards.find())
+            return gifts
+        except Exception as e:
+            print(f"Error getting gift cards: {e}")
+            return []
+    
+    def deactivate_gift_card(self, code):
+        """Deactivate a gift card"""
+        try:
+            self.gift_cards.update_one(
+                {'code': code.upper()},
+                {
+                    '$set': {
+                        'is_active': False,
+                        'updated_at': datetime.now().isoformat()
+                    }
+                }
+            )
+            return True
+        except Exception as e:
+            print(f"Error deactivating gift card: {e}")
+            return False
+    
+    def delete_gift_card(self, code):
+        """Delete a gift card permanently"""
+        try:
+            result = self.gift_cards.delete_one({'code': code.upper()})
+            return result.deleted_count > 0
+        except Exception as e:
+            print(f"Error deleting gift card: {e}")
+            return False
     
     def validate_api_key(self, api_key):
         """Validate API key and return key data"""
@@ -211,6 +381,10 @@ class Database:
     def set_expiry(self, api_key, days):
         """Set expiry date for API key"""
         try:
+            if days <= 0:
+                # Remove expiry (permanent)
+                return self.remove_expiry(api_key)
+            
             expiry_date = (datetime.now() + timedelta(days=days)).isoformat()
             self.api_keys.update_one(
                 {'api_key': api_key},
@@ -267,6 +441,8 @@ class Database:
             total_users = self.users.count_documents({})
             total_keys = self.api_keys.count_documents({})
             active_keys = self.api_keys.count_documents({'is_active': True})
+            total_gifts = self.gift_cards.count_documents({})
+            active_gifts = self.gift_cards.count_documents({'is_active': True})
             
             # Total requests
             pipeline = [
@@ -275,11 +451,21 @@ class Database:
             result = list(self.api_keys.aggregate(pipeline))
             total_requests = result[0]['total'] if result else 0
             
+            # Total gift redemptions
+            gift_pipeline = [
+                {'$group': {'_id': None, 'total': {'$sum': '$used_count'}}}
+            ]
+            gift_result = list(self.gift_cards.aggregate(gift_pipeline))
+            total_redemptions = gift_result[0]['total'] if gift_result else 0
+            
             return {
                 'total_users': total_users,
                 'total_keys': total_keys,
                 'active_keys': active_keys,
-                'total_requests': total_requests
+                'total_requests': total_requests,
+                'total_gifts': total_gifts,
+                'active_gifts': active_gifts,
+                'total_redemptions': total_redemptions
             }
         except Exception as e:
             print(f"Error getting stats: {e}")
