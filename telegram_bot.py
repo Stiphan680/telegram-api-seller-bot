@@ -3,17 +3,24 @@ import logging
 import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database import Database
 from config import Config
 
-# Import AI Router for Perplexity integration
+# Import AI Router and Notification Manager
 try:
     from ai_router import get_ai_router
     AI_ROUTER_AVAILABLE = True
 except ImportError:
     AI_ROUTER_AVAILABLE = False
-    print("⚠️ AI Router not available, using default API backend")
+    print("⚠️ AI Router not available")
+
+try:
+    from notification_manager import get_notification_manager
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError:
+    NOTIFICATIONS_AVAILABLE = False
+    print("⚠️ Notification Manager not available")
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -28,10 +35,20 @@ if AI_ROUTER_AVAILABLE:
 else:
     ai_router = None
 
-# Admin Telegram ID
-ADMIN_ID = 5451167865
+# Initialize Notification Manager
+CHANNEL_ID = "-1003350605488"
+if NOTIFICATIONS_AVAILABLE:
+    try:
+        notifier = get_notification_manager(Config.TELEGRAM_BOT_TOKEN, CHANNEL_ID)
+        logger.info(f"✅ Notification Manager initialized for channel {CHANNEL_ID}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize notifier: {e}")
+        notifier = None
+else:
+    notifier = None
 
-# Default free plan expiry (in days)
+# Admin ID
+ADMIN_ID = 5451167865
 DEFAULT_FREE_EXPIRY_DAYS = 7
 
 # API Plans
@@ -81,148 +98,74 @@ PLANS = {
 }
 
 def is_admin(user_id):
-    """Check if user is admin"""
     return user_id == ADMIN_ID
 
 def format_expiry(expiry_date_str):
-    """Format expiry date for display"""
     if not expiry_date_str:
         return "No expiry (Permanent)"
-    
     try:
         expiry = datetime.fromisoformat(expiry_date_str)
         now = datetime.now()
-        
         if now > expiry:
             return "⚠️ Expired"
-        
         days_left = (expiry - now).days
-        hours_left = (expiry - now).seconds // 3600
-        
         if days_left > 0:
             return f"✅ {days_left} days left (expires {expiry.strftime('%Y-%m-%d')})"
-        else:
-            return f"⚠️ {hours_left} hours left"
+        return f"⚠️ {(expiry - now).seconds // 3600} hours left"
     except:
         return "Invalid date"
 
 async def get_ai_backend_info():
-    """Get current AI backend information"""
     if ai_router:
         status = ai_router.get_backend_status()
         if 'perplexity' in status.get('available_backends', []):
             return "🔍 Powered by Perplexity AI (Online Search + Citations)"
-        else:
-            return "🤖 Powered by Gemini + Groq (Free AI)"
+        return "🤖 Powered by Gemini + Groq (Free AI)"
     return "🤖 Advanced AI Backend"
 
-async def test_api_with_backend(api_key: str, plan: str) -> dict:
-    """Test API key with AI backend"""
-    if not ai_router:
-        return {'success': False, 'backend': 'none'}
-    
-    try:
-        # Test query based on plan
-        test_queries = {
-            'free': 'What is AI?',
-            'basic': 'Explain artificial intelligence in Hindi',
-            'pro': 'Search for latest AI developments'
-        }
-        
-        result = await ai_router.get_response(
-            question=test_queries.get(plan, 'Hello'),
-            search_online=(plan == 'pro'),  # Pro plan gets online search
-            include_context=False
-        )
-        
-        return {
-            'success': result.get('success', False),
-            'backend': result.get('backend_used', 'unknown'),
-            'response_preview': result.get('response', '')[:100] if result.get('success') else None
-        }
-    except Exception as e:
-        logger.error(f"Test API error: {e}")
-        return {'success': False, 'backend': 'error', 'error': str(e)}
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send welcome message with menu"""
     user = update.effective_user
-    
-    # Get AI backend info
     backend_info = await get_ai_backend_info()
     
-    # Admin check
     if is_admin(user.id):
         welcome_text = f"""
 🤖 *Welcome Admin {user.first_name}!* 👑
 
 {backend_info}
 
-You have full admin access to the API Seller Bot.
-
-*✨ Premium Features:*
-🌍 Multi-language support (8+ languages)
-💬 Tone control (professional, casual, creative, etc.)
-📚 Conversation history & context
-🔍 Text analysis & summarization
-⚡ Streaming responses
-📊 Advanced analytics
-
 *Admin Commands:*
 /admin - Admin Panel
+/backend - Check AI Backend
 /stats - System Statistics
-/users - View All Users
-/backend - Check AI Backend Status
         """
-        
         keyboard = [
             [InlineKeyboardButton("👑 Admin Panel", callback_data='admin_panel')],
-            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
-            [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
-            [InlineKeyboardButton("✨ View Features", callback_data='features')]
+            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')]
         ]
     else:
         welcome_text = f"""
-🤖 *Welcome to Advanced API Seller Bot!* 🤖
+🤖 *Welcome to API Seller Bot!*
 
 {backend_info}
 
-Hello {user.first_name}! 
-
-I help you get your own Advanced AI Chatbot API key instantly.
-
-*✨ Premium Features:*
-🌍 Multi-language support (8+ languages)
-💬 Tone control (professional, casual, creative, etc.)
-📚 Conversation history & context
-🔍 Text analysis & summarization
-⚡ Streaming responses
-📊 Advanced analytics
+Hello {user.first_name}!
 
 *Commands:*
-/buy - Purchase API access
-/myapi - Get your API keys
-/usage - Check API usage
-/features - View all features
+/buy - Get API access
+/myapi - View your keys
 /help - Get help
         """
-        
         keyboard = [
-            [InlineKeyboardButton("🛍️ Buy API Access", callback_data='buy_api')],
-            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
-            [InlineKeyboardButton("📈 Usage Stats", callback_data='usage')],
-            [InlineKeyboardButton("✨ View Features", callback_data='features')]
+            [InlineKeyboardButton("🛍️ Buy API", callback_data='buy_api')],
+            [InlineKeyboardButton("📊 My Keys", callback_data='my_api')]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def check_backend_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin: Check AI backend status"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("⛔ This command is for admins only.")
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
         return
     
     if not ai_router:
@@ -230,33 +173,38 @@ async def check_backend_status(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     status = ai_router.get_backend_status()
-    
     status_text = f"""
 🤖 *AI Backend Status*
 
-*Available Backends:*
-{', '.join(status.get('available_backends', []))}
-
-*Priority Order:*
-{' → '.join(status.get('priority_order', []))}
-
-*Default Backend:*
-{status.get('default', 'none')}
-
-*Status:*
-• Perplexity: {'✅' if status.get('perplexity_enabled') else '❌'}
-• Advanced AI (Gemini/Groq): {'✅' if status.get('advanced_ai_enabled') else '❌'}
-
-*Perplexity Features:*
-• 🌐 Online search (real-time data)
-• 📚 Citations and sources
-• 🎯 Up-to-date information (2024+)
+*Available:* {', '.join(status.get('available_backends', []))}
+*Default:* {status.get('default', 'none')}
+*Perplexity:* {'✅' if status.get('perplexity_enabled') else '❌'}
+*Advanced AI:* {'✅' if status.get('advanced_ai_enabled') else '❌'}
     """
-    
     await update.message.reply_text(status_text, parse_mode='Markdown')
 
+async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    plans_text = f"""
+💳 *Choose Your Plan*
+
+*1️⃣ Free* - ₹0 ({DEFAULT_FREE_EXPIRY_DAYS} days)
+*2️⃣ Basic* - ₹99/month
+*3️⃣ Pro* - ₹299/month
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("🆓 Free Plan", callback_data='select_free')],
+        [InlineKeyboardButton("💎 Basic Plan", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Pro Plan", callback_data='select_pro')],
+        [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(plans_text, reply_markup=reply_markup, parse_mode='Markdown')
+
 async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle plan selection with Perplexity backend"""
     query = update.callback_query
     await query.answer()
     
@@ -264,146 +212,168 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.first_name
     
-    # Check if user already has this specific plan active
     has_plan = db.has_active_plan(user_id, plan)
-    
     if has_plan:
-        message = f"""
-⚠️ *You already have an active {plan.upper()} plan!*
-
-You can have multiple plans (e.g., Free + Premium).
-But you cannot have multiple keys of the same plan type.
-
-Use /myapi to view all your API keys.
-        """
-        keyboard = [[InlineKeyboardButton("📊 My API Keys", callback_data='my_api')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+        await query.edit_message_text(f"⚠️ You already have {plan.upper()} plan active!")
         return
     
-    # For free plan, generate key immediately with AI backend test
     if plan == 'free':
-        # Show processing message
-        await query.edit_message_text("⏳ Generating your API key with AI backend...\n\nPlease wait...")
+        await query.edit_message_text("⏳ Generating API key...")
         
         api_key = db.create_api_key(user_id, username, plan, expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
         
         if not api_key:
-            await query.edit_message_text("❌ Error generating API key. Please try again.")
+            await query.edit_message_text("❌ Error! Try again.")
             return
         
-        # Test API with backend
-        test_result = await test_api_with_backend(api_key, plan)
+        # Test backend
+        backend_used = 'unknown'
+        if ai_router:
+            try:
+                result = await ai_router.get_response(
+                    question='Test',
+                    search_online=False
+                )
+                backend_used = result.get('backend_used', 'unknown')
+            except Exception as e:
+                logger.error(f"Backend test error: {e}")
         
-        backend_info = ""
-        if test_result.get('success'):
-            backend_used = test_result.get('backend', 'unknown')
-            if backend_used == 'perplexity':
-                backend_info = "\n🔍 *Backend:* Perplexity AI (Online Search)\n✅ API tested successfully!\n"
-            elif backend_used == 'advanced_ai':
-                backend_info = "\n🤖 *Backend:* Advanced AI (Gemini + Groq)\n✅ API tested successfully!\n"
-            else:
-                backend_info = f"\n✅ Backend: {backend_used}\n"
+        # Send notification
+        if notifier:
+            try:
+                await notifier.notify_new_api_key(
+                    username=username,
+                    user_id=user_id,
+                    plan=plan,
+                    backend=backend_used
+                )
+            except Exception as e:
+                logger.error(f"Notification failed: {e}")
+        
+        backend_info = f"\n🤖 Backend: {backend_used}\n" if backend_used != 'unknown' else ""
         
         success_message = f"""
-✅ *Free API Key Generated Successfully!*
+✅ *API Key Generated!*
 
-🔑 Your API Key:
-`{api_key}`
+🔑 `{api_key}`
 {backend_info}
-⏰ *Valid for {DEFAULT_FREE_EXPIRY_DAYS} days*
+⏰ Valid for {DEFAULT_FREE_EXPIRY_DAYS} days
 
-*🌟 Example - Simple Request (Python):*
+*Example:*
 ```python
 import requests
-
-url = "YOUR_API_ENDPOINT/chat"
-headers = {{
-    "X-API-Key": "{api_key}",
-    "Content-Type": "application/json"
-}}
-
-data = {{
-    "question": "What is AI?",
-    "language": "english",
-    "tone": "professional"
-}}
-
-response = requests.post(url, json=data, headers=headers)
-print(response.json())
+url = "API_ENDPOINT/chat"
+headers = {{"X-API-Key": "{api_key}"}}
+data = {{"question": "Hello!"}}
+requests.post(url, json=data, headers=headers)
 ```
 
-*🌟 Free Plan Features:*
-• 100 requests/hour
-• English language only
-• Valid for {DEFAULT_FREE_EXPIRY_DAYS} days
-• Can upgrade to Premium anytime!
-
-*💎 Want Premium Features?*
-Upgrade to Basic or Pro for:
-• Unlimited requests
-• 8+ languages
-• Advanced features
-• No expiry (monthly renewal)
-
-Contact admin for API endpoint details.
+Use /myapi to view all keys
         """
         
         keyboard = [
-            [InlineKeyboardButton("✨ Upgrade to Premium", callback_data='buy_api')],
-            [InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
-            [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
+            [InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
+            [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
-    
     else:
-        # For paid plans, show payment instructions
-        plan_info = PLANS[plan]
-        payment_message = f"""
-💳 *{plan_info['name']} Payment*
+        payment_msg = f"""
+💳 *{PLANS[plan]['name']} Payment*
 
-Price: *₹{plan_info['price']}/month*
+Price: *₹{PLANS[plan]['price']}/month*
 
-*Features:*
-"""
-        for feature in plan_info['features']:
-            payment_message += f"✅ {feature}\n"
-        
-        # Add backend info for premium plans
-        if ai_router and 'perplexity' in ai_router.get_backend_status().get('available_backends', []):
-            payment_message += "\n🔍 *Includes:* Perplexity AI with online search\n"
-        
-        payment_message += f"""
-
-*Payment Instructions:*
-
-1️⃣ Send payment to:
-   UPI: `your-upi-id@upi`
-   Phone: +91-XXXXXXXXXX
-   Reference: USER_{user_id}
-
-2️⃣ Send screenshot with reference number
-
-3️⃣ Your API key will be activated within 5 minutes
-
-*Or contact admin:*
-@YourAdminUsername
-
-💡 _Demo mode: Integrate real payment gateway for production_
+Contact admin for payment details.
         """
+        keyboard = [[InlineKeyboardButton("« Back", callback_data='buy_api')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        user_id = query.from_user.id
+        edit_message = True
+    else:
+        user_id = update.effective_user.id
+        edit_message = False
+    
+    keys = db.get_active_api_keys(user_id)
+    
+    if not keys:
+        message = "❌ No active keys. Use /buy to get one!"
+        keyboard = [[InlineKeyboardButton("🛍️ Buy API", callback_data='buy_api')]]
+    else:
+        message = f"🔑 *Your API Keys* ({len(keys)})\n\n"
+        for idx, key in enumerate(keys, 1):
+            plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+            expiry_info = format_expiry(key.get('expiry_date'))
+            message += f"{idx}. {plan_emoji} *{key.get('plan', 'N/A').upper()}*\n"
+            message += f"   `{key.get('api_key')}`\n"
+            message += f"   {expiry_info}\n\n"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Payment Done", callback_data=f'payment_done_{plan}')],
-            [InlineKeyboardButton("« Back", callback_data='buy_api')]
+            [InlineKeyboardButton("🛍️ Get More", callback_data='buy_api')],
+            [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(payment_message, reply_markup=reply_markup, parse_mode='Markdown')
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if edit_message:
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
-# ... (rest of the bot code remains same: admin_panel, buy_api, my_api_key, etc.)
-# Copy all other functions from original telegram_bot.py
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    menu_text = "🤖 *Main Menu*\n\nWhat would you like to do?"
+    keyboard = [
+        [InlineKeyboardButton("🛍️ Buy API", callback_data='buy_api')],
+        [InlineKeyboardButton("📊 My Keys", callback_data='my_api')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(menu_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = f"""
+📚 *Help & Commands*
+
+/start - Start bot
+/buy - Get API access
+/myapi - View your keys
+/help - This message
+
+*Plans:*
+Free: ₹0 ({DEFAULT_FREE_EXPIRY_DAYS} days)
+Basic: ₹99/month
+Pro: ₹299/month
+    """
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def on_startup(application):
+    """Called when bot starts"""
+    if notifier:
+        try:
+            backend_status = ai_router.get_backend_status() if ai_router else None
+            await notifier.notify_bot_started(backend_status)
+            logger.info("✅ Startup notification sent")
+        except Exception as e:
+            logger.error(f"❌ Startup notification failed: {e}")
+
+async def on_error(update, context):
+    """Handle errors"""
+    logger.error(f"Update {update} caused error {context.error}")
+    if notifier:
+        try:
+            await notifier.notify_error(
+                error_msg=str(context.error),
+                context=f"Update: {update}"
+            )
+        except:
+            pass
 
 def main():
     """Start the bot"""
@@ -412,11 +382,27 @@ def main():
     # Command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("backend", check_backend_status))
-    # ... add all other handlers
+    application.add_handler(CommandHandler("myapi", my_api_key))
+    application.add_handler(CommandHandler("help", help_command))
+    
+    # Callback handlers
+    application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
+    application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
+    application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
+    application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
+    
+    # Error handler
+    application.add_error_handler(on_error)
+    
+    # Send startup notification
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(on_startup(application))
     
     # Start bot
     backend_status = ai_router.get_backend_status() if ai_router else {}
-    logger.info(f"Bot started with AI Router - Backends: {backend_status.get('available_backends', [])}")
+    logger.info(f"🚀 Bot started - Backends: {backend_status.get('available_backends', [])}")
+    logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
