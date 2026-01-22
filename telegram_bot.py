@@ -172,7 +172,7 @@ async def get_ai_backend_info():
     if ai_router:
         status = ai_router.get_backend_status()
         if 'perplexity' in status.get('available_backends', []):
-            return "🧠 *Powered by Claude 3.5 Sonnet*\nAnthropic's most advanced AI model\n💎 Premium tier access - $15/million tokens"
+            return "🧠 *Powered by Perplexity + Claude*\nAdvanced search with Claude 3.5 Sonnet\n💎 Premium AI with real-time web search"
         return "🧠 *Powered by Claude 3.5 Sonnet*\nAnthropic's flagship AI model\n💎 Enterprise-grade intelligence"
     return "🧠 *Powered by Claude 3.5 Sonnet*\nPremium AI by Anthropic"
 
@@ -351,14 +351,23 @@ async def create_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin views all gift cards"""
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Admin only!")
+    # Support both message and callback query
+    if hasattr(update, 'callback_query') and update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        send_method = query.edit_message_text
+    else:
+        user_id = update.effective_user.id
+        send_method = update.message.reply_text
+    
+    if not is_admin(user_id):
+        await send_method("⛔ Admin only!")
         return
     
     gifts = db.get_all_gift_cards()
     
     if not gifts:
-        await update.message.reply_text("❌ No gift cards found.")
+        await send_method("❌ No gift cards found.")
         return
     
     active_gifts = [g for g in gifts if g.get('is_active', False)]
@@ -396,7 +405,10 @@ async def list_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     message += "💡 Use `/deletegift <code>` to remove a card"
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("« Back to Dashboard", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await send_method(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def delete_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin deletes a gift card: /deletegift GIFT-XXXX-XXXX-XXXX"""
@@ -496,14 +508,23 @@ Congratulations! Your API key is ready.
 
 async def view_all_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin views ALL API keys"""
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Admin only!")
+    # Support both message and callback query
+    if hasattr(update, 'callback_query') and update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        send_method = query.edit_message_text
+    else:
+        user_id = update.effective_user.id
+        send_method = update.message.reply_text
+    
+    if not is_admin(user_id):
+        await send_method("⛔ Admin only!")
         return
     
     keys = db.get_all_api_keys()
     
     if not keys:
-        await update.message.reply_text("❌ No API keys found.")
+        await send_method("❌ No API keys found.")
         return
     
     active_keys = [k for k in keys if k.get('is_active', False)]
@@ -539,7 +560,10 @@ async def view_all_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     message += "💡 Use `/deletekey <api_key>` to remove a key"
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("« Back to Dashboard", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await send_method(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def delete_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin deletes an API key: /deletekey sk-..."""
@@ -589,8 +613,17 @@ async def delete_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin views bot statistics"""
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ Admin only!")
+    # Support both message and callback query
+    if hasattr(update, 'callback_query') and update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        send_method = query.edit_message_text
+    else:
+        user_id = update.effective_user.id
+        send_method = update.message.reply_text
+    
+    if not is_admin(user_id):
+        await send_method("⛔ Admin only!")
         return
     
     stats = db.get_stats()
@@ -618,7 +651,29 @@ Total Redemptions: {stats.get('total_redemptions', 0)}
 ✅ System operational!
     """
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("« Back to Dashboard", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await send_method(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ============= PAYMENTS =============
+
+async def admin_view_payments_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin views payments from button"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(query.from_user.id):
+        await query.edit_message_text("⛔ Admin only!")
+        return
+    
+    if payment_handler:
+        summary = payment_handler.get_admin_summary()
+        keyboard = [[InlineKeyboardButton("« Back to Dashboard", callback_data='back_to_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(summary, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await query.edit_message_text("❌ Payment system not available")
 
 # ============= EXISTING FUNCTIONS (keeping same) =============
 
@@ -1170,29 +1225,6 @@ Response time: 2-4 hours
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# Callback handlers for admin buttons
-async def admin_gifts_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    # Convert to command-style call
-    update.message = update.callback_query.message
-    await list_gift_cards(update, context)
-
-async def admin_allkeys_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    update.message = update.callback_query.message
-    await view_all_keys(update, context)
-
-async def admin_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    update.message = update.callback_query.message
-    await show_stats(update, context)
-
 async def post_init(application: Application):
     logger.info("✅ Bot initialization complete")
     
@@ -1256,9 +1288,12 @@ def main():
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
     application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
     application.add_handler(CallbackQueryHandler(check_backend_status, pattern='^check_backend$'))
-    application.add_handler(CallbackQueryHandler(admin_gifts_callback, pattern='^admin_gifts$'))
-    application.add_handler(CallbackQueryHandler(admin_allkeys_callback, pattern='^admin_allkeys$'))
-    application.add_handler(CallbackQueryHandler(admin_stats_callback, pattern='^admin_stats$'))
+    
+    # Admin panel callback handlers
+    application.add_handler(CallbackQueryHandler(list_gift_cards, pattern='^admin_gifts$'))
+    application.add_handler(CallbackQueryHandler(view_all_keys, pattern='^admin_allkeys$'))
+    application.add_handler(CallbackQueryHandler(show_stats, pattern='^admin_stats$'))
+    application.add_handler(CallbackQueryHandler(admin_view_payments_callback, pattern='^admin_payments$'))
     
     application.add_error_handler(on_error)
     
