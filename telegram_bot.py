@@ -61,6 +61,10 @@ else:
 ADMIN_ID = 5451167865
 DEFAULT_FREE_EXPIRY_DAYS = 2
 
+# Payment UPI ID
+UPI_ID = "aman4380@kphdfc"
+UPI_NAME = "Aman"
+
 # Health Check Server for Render FREE tier
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -78,7 +82,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             <p><strong>Admin ID:</strong> {ADMIN_ID}</p>
             <p><strong>AI Router:</strong> {'✅ Connected' if ai_router else '❌ Disabled'}</p>
             <p><strong>Notifications:</strong> {'✅ Enabled' if notifier else '❌ Disabled'}</p>
-            <p><strong>Payments:</strong> {'✅ Manual' if payment_handler else '❌ Disabled'}</p>
+            <p><strong>Payments:</strong> ✅ UPI ({UPI_ID})</p>
             <hr>
             <h2>📊 Statistics</h2>
             <p>Total Users: {stats.get('total_users', 0)}</p>
@@ -109,12 +113,13 @@ PLANS = {
         'price': 0,
         'description': f'Experience our AI API free for {DEFAULT_FREE_EXPIRY_DAYS} days',
         'features': [
-            '✅ 100 requests per hour',
-            '✅ English language support',
-            '✅ Basic AI responses',
-            '✅ Standard response time',
+            '✅ All Premium Features',
+            '✅ AI Chat (Claude 3.5)',
+            '✅ Image Generation (1024x1024)',
+            '✅ Video Generation (HD)',
+            '✅ Code Expert Assistant',
             f'✅ {DEFAULT_FREE_EXPIRY_DAYS} days validity',
-            '✅ Community support'
+            '✅ No credit card required'
         ]
     },
     'basic': {
@@ -123,11 +128,10 @@ PLANS = {
         'description': 'Perfect for individuals and small projects',
         'features': [
             '✅ Unlimited API requests',
-            '✅ 8+ language support',
-            '✅ Multiple tone controls',
-            '✅ Conversation memory',
-            '✅ Sentiment analysis',
-            '✅ Keyword extraction',
+            '✅ All AI features included',
+            '✅ Chat, Images, Videos, Code',
+            '✅ Priority support',
+            '✅ Fast response time',
             '✅ Email support',
             '✅ 30 days validity'
         ]
@@ -139,11 +143,10 @@ PLANS = {
         'features': [
             '✅ Everything in Basic',
             '✅ Priority processing',
-            '✅ Content summarization',
-            '✅ Real-time streaming',
-            '✅ Advanced analytics',
+            '✅ Advanced AI models',
+            '✅ Highest quality output',
+            '✅ 24/7 dedicated support',
             '✅ Custom integrations',
-            '✅ Dedicated support',
             '✅ 30 days validity'
         ]
     }
@@ -153,14 +156,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command - shows welcome message"""
     user = update.effective_user
     
+    # Register user
+    db.register_user(user.id, user.username or user.first_name)
+    
     welcome_message = f"""
 🎉 *Welcome to Premium API Store!*
 
 Hello {user.first_name}! Get instant access to powerful AI features:
 
 🤖 *AI Chat* - Claude 3.5 Sonnet
-🎨 *Image Generation* - Flux AI
-🎬 *Video Generation* - Mochi AI  
+🎨 *Image Generation* - Flux AI (1024x1024)
+🎬 *Video Generation* - Mochi AI (HD)
 💻 *Code Expert* - Claude Assistant
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -230,7 +236,7 @@ Congratulations! Your API key is ready.
 💎 *You now have access to:*
 • AI Chat (Claude 3.5 Sonnet)
 • Image Generation (1024x1024)
-• Video Generation (up to 10s)
+• Video Generation (HD)
 • Code Expert Assistant
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -263,21 +269,55 @@ Congratulations! Your API key is ready.
         # Show payment instructions for paid plans
         payment_msg = f"""
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  💳 PAYMENT REQUIRED  ┃
+┃  💳 *PAYMENT DETAILS*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-Plan: {PLANS[plan]['name'].upper()}
-Price: ₹{PLANS[plan]['price']}/month
+*Selected Plan:* {PLANS[plan]['name']}
+*Price:* ₹{PLANS[plan]['price']}/month
+*Validity:* 30 days
 
-Contact admin for payment:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💸 *Payment Method: UPI*
+
+*UPI ID:*
+`{UPI_ID}`
+
+*Name:* {UPI_NAME}
+*Amount:* ₹{PLANS[plan]['price']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 *Payment Steps:*
+
+1️⃣ Open any UPI app (GPay, PhonePe, Paytm)
+2️⃣ Enter UPI ID: `{UPI_ID}`
+3️⃣ Send ₹{PLANS[plan]['price']}
+4️⃣ Take screenshot of payment
+5️⃣ Send screenshot to admin with your:
+   • Telegram Username: @{username}
+   • Selected Plan: {PLANS[plan]['name']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ *Quick Payment:*
+upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={PLANS[plan]['price']}&cu=INR
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 After payment, contact admin:
 @Anonononononon
+
+⏱️ API key will be activated within 2-4 hours!
         """
+        
         keyboard = [
             [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
-            [InlineKeyboardButton("« Back", callback_data='buy_api')]
+            [InlineKeyboardButton("🔙 Back to Plans", callback_data='buy_api')],
+            [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(payment_msg, reply_markup=reply_markup)
+        await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show user's API keys"""
@@ -366,37 +406,40 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • All premium features
 • AI Chat, Images, Videos
 • Code Expert included
-• No credit card required
+• No payment required
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💎 *BASIC PLAN*
-₹99/month | Unlimited Requests
+₹99/month | 30 Days
 
-• Unlimited API calls
-• All features included
-• Email support
-• 30 days validity
+• Unlimited API requests
+• All AI features
+• Priority support
+• Fast response time
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⭐ *PRO PLAN*
-₹299/month | Priority + Everything
+₹299/month | 30 Days
 
-• Priority processing
-• Dedicated support
-• Advanced features
-• 30 days validity
+• Everything in Basic
+• Advanced AI models
+• Highest quality output
+• 24/7 dedicated support
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💸 *Payment: UPI*
+UPI ID: `{UPI_ID}`
 
 👉 Select a plan below:
     """
     
     keyboard = [
         [InlineKeyboardButton(f"🎁 Start {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial", callback_data='select_free')],
-        [InlineKeyboardButton("💎 Get Basic - ₹99", callback_data='select_basic')],
-        [InlineKeyboardButton("⭐ Get Pro - ₹299", callback_data='select_pro')],
+        [InlineKeyboardButton("💎 Buy Basic - ₹99", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Buy Pro - ₹299", callback_data='select_pro')],
         [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -451,8 +494,17 @@ async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 • AI Chat (Claude 3.5 Sonnet)
 • Image Generation (1024x1024)
-• Video Generation (up to 10s)
+• Video Generation (HD)
 • Code Expert Assistant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*💸 Payment:*
+
+UPI ID: `{UPI_ID}`
+Name: {UPI_NAME}
+
+Accepted: GPay, PhonePe, Paytm, etc.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -479,6 +531,7 @@ def main():
     
     logger.info("🚀 Starting Bot...")
     logger.info(f"🎁 Free Trial: {DEFAULT_FREE_EXPIRY_DAYS} days")
+    logger.info(f"💸 Payment: UPI ({UPI_ID})")
     logger.info(f"🤖 AI: {'Enabled' if ai_router else 'Disabled'}")
     logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
     
