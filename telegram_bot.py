@@ -65,7 +65,11 @@ DEFAULT_FREE_EXPIRY_DAYS = 2
 UPI_ID = "aman4380@kphdfc"
 UPI_NAME = "Aman"
 
-# Health Check Server for Render FREE tier
+# Check admin
+def is_admin(user_id):
+    return user_id == ADMIN_ID
+
+# Health Check Server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -87,20 +91,18 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             <h2>📊 Statistics</h2>
             <p>Total Users: {stats.get('total_users', 0)}</p>
             <p>Active API Keys: {stats.get('active_keys', 0)}</p>
-            <p>Gift Cards: {stats.get('active_gifts', 0)} active / {stats.get('total_gifts', 0)} total</p>
             <p>Total Requests: {stats.get('total_requests', 0)}</p>
             <hr>
-            <small>Render Free Tier - Health Check Endpoint</small>
+            <small>Premium API Gateway</small>
         </body>
         </html>
         """
         self.wfile.write(status_html.encode())
     
     def log_message(self, format, *args):
-        pass  # Suppress logs
+        pass
 
 def run_health_server():
-    """Run health check HTTP server on port 10000 for Render"""
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     logger.info(f"🌐 Health check server running on port {port}")
@@ -115,58 +117,48 @@ PLANS = {
         'features': [
             '✅ All Premium Features',
             '✅ AI Chat (Claude 3.5)',
-            '✅ Image Generation (1024x1024)',
-            '✅ Video Generation (HD)',
-            '✅ Code Expert Assistant',
-            f'✅ {DEFAULT_FREE_EXPIRY_DAYS} days validity',
-            '✅ No credit card required'
+            '✅ Image Generation',
+            '✅ Video Generation',
+            '✅ Code Expert',
+            f'✅ {DEFAULT_FREE_EXPIRY_DAYS} days validity'
         ]
     },
     'basic': {
         'name': 'Basic Plan',
         'price': 99,
-        'description': 'Perfect for individuals and small projects',
+        'description': 'Perfect for individuals',
         'features': [
-            '✅ Unlimited API requests',
-            '✅ All AI features included',
-            '✅ Chat, Images, Videos, Code',
-            '✅ Priority support',
-            '✅ Fast response time',
-            '✅ Email support',
+            '✅ Unlimited Requests',
+            '✅ All Features',
+            '✅ Priority Support',
             '✅ 30 days validity'
         ]
     },
     'pro': {
         'name': 'Pro Plan',
         'price': 299,
-        'description': 'Best for businesses and power users',
+        'description': 'Best for professionals',
         'features': [
             '✅ Everything in Basic',
-            '✅ Priority processing',
-            '✅ Advanced AI models',
-            '✅ Highest quality output',
-            '✅ 24/7 dedicated support',
-            '✅ Custom integrations',
+            '✅ Advanced Models',
+            '✅ 24/7 Support',
             '✅ 30 days validity'
         ]
     }
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start command - shows welcome message"""
     user = update.effective_user
-    
-    # Register user
     db.register_user(user.id, user.username or user.first_name)
     
     welcome_message = f"""
 🎉 *Welcome to Premium API Store!*
 
-Hello {user.first_name}! Get instant access to powerful AI features:
+Hello {user.first_name}!
 
 🤖 *AI Chat* - Claude 3.5 Sonnet
-🎨 *Image Generation* - Flux AI (1024x1024)
-🎬 *Video Generation* - Mochi AI (HD)
+🎨 *Image Generation* - Flux AI
+🎬 *Video Generation* - Mochi AI
 💻 *Code Expert* - Claude Assistant
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -174,26 +166,19 @@ Hello {user.first_name}! Get instant access to powerful AI features:
 🎁 *Get {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial!*
 
 Try all features completely free!
-
-• `/start` - Show this menu
-• `/myapi` - View your API keys
-• `/buy` - Browse paid plans
-• `/redeem` - Redeem gift card
-• `/help` - Get support
     """
     
     keyboard = [
         [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
         [InlineKeyboardButton("💰 View Pricing", callback_data='buy_api'),
          InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
-        [InlineKeyboardButton("❓ Help & Support", callback_data='help_support')]
+        [InlineKeyboardButton("❓ Help", callback_data='help_support')]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle plan selection"""
     query = update.callback_query
     await query.answer()
     
@@ -201,7 +186,6 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.first_name
     
-    # Check if user already has this plan
     has_plan = db.has_active_plan(user_id, plan)
     if has_plan:
         await query.edit_message_text(
@@ -211,7 +195,6 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if plan == 'free':
-        # Generate free trial API key (2 days)
         await query.edit_message_text("⏳ *Generating your free API key...*\n\nPlease wait.", parse_mode='Markdown')
         
         api_key = db.create_api_key(user_id, username, plan, expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
@@ -222,105 +205,111 @@ async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┃  ✅ *API KEY GENERATED*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-Congratulations! Your API key is ready.
+Congratulations!
 
 *Your API Key:*
 `{api_key}`
 
 *Plan:* FREE TRIAL
 *Validity:* {DEFAULT_FREE_EXPIRY_DAYS} days
-*Features:* All premium features included!
+*Features:* All premium features!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💎 *You now have access to:*
-• AI Chat (Claude 3.5 Sonnet)
-• Image Generation (1024x1024)
-• Video Generation (HD)
-• Code Expert Assistant
+💎 *Access to:*
+• AI Chat, Images, Videos, Code
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📌 Use `/myapi` to view all your keys!
+📌 Use `/myapi` to view keys!
             """
             
-            # Notify admin
             if notifier:
                 try:
-                    await notifier.notify_new_api_key(
-                        username=username,
-                        user_id=user_id,
-                        plan=plan,
-                        backend=f"Free Trial ({DEFAULT_FREE_EXPIRY_DAYS}d)"
-                    )
+                    await notifier.notify_new_api_key(username=username, user_id=user_id, plan=plan, backend=f"Free ({DEFAULT_FREE_EXPIRY_DAYS}d)")
                 except:
                     pass
             
             keyboard = [
-                [InlineKeyboardButton("📊 View My Keys", callback_data='my_api')],
-                [InlineKeyboardButton("🔝 Upgrade Plan", callback_data='buy_api')],
-                [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
+                [InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
+                [InlineKeyboardButton("🔝 Upgrade", callback_data='buy_api')],
+                [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
         else:
-            await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key. Please try again.", parse_mode='Markdown')
+            await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key.", parse_mode='Markdown')
     else:
-        # Show payment instructions for paid plans
-        payment_msg = f"""
+        # Create payment request with reference ID
+        if PAYMENT_AVAILABLE:
+            payment_result = payment_handler.create_payment_request(
+                user_id=user_id,
+                username=username,
+                plan=plan,
+                amount=PLANS[plan]['price']
+            )
+            
+            if payment_result['success']:
+                reference = payment_result['reference']
+                amount = payment_result['amount']
+                
+                payment_msg = f"""
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  💳 *PAYMENT DETAILS*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-*Selected Plan:* {PLANS[plan]['name']}
-*Price:* ₹{PLANS[plan]['price']}/month
-*Validity:* 30 days
+🏷️ *Plan:* {PLANS[plan]['name']}
+💵 *Amount:* ₹{amount}
+🎯 *Reference:* `{reference}`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💸 *Payment Method: UPI*
+💸 *UPI Payment Method*
 
 *UPI ID:*
 `{UPI_ID}`
 
 *Name:* {UPI_NAME}
-*Amount:* ₹{PLANS[plan]['price']}
+*Amount:* ₹{amount}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📝 *Payment Steps:*
 
-1️⃣ Open any UPI app (GPay, PhonePe, Paytm)
-2️⃣ Enter UPI ID: `{UPI_ID}`
-3️⃣ Send ₹{PLANS[plan]['price']}
-4️⃣ Take screenshot of payment
-5️⃣ Send screenshot to admin with your:
-   • Telegram Username: @{username}
-   • Selected Plan: {PLANS[plan]['name']}
+1️⃣ Open UPI app (GPay/PhonePe/Paytm)
+2️⃣ Pay to: `{UPI_ID}`
+3️⃣ Amount: ₹{amount}
+4️⃣ Add Note: `{reference}`
+5️⃣ Take screenshot
+6️⃣ Send to admin with:
+   • Reference: `{reference}`
+   • Screenshot
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚡ *Quick Payment:*
-upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={PLANS[plan]['price']}&cu=INR
+⚡ *Quick Pay:*
+`upi://pay?pa={UPI_ID}&pn={UPI_NAME}&am={amount}&tn={reference}`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💬 After payment, contact admin:
-@Anonononononon
+💬 *Contact Admin:* @Anonononononon
 
-⏱️ API key will be activated within 2-4 hours!
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
-            [InlineKeyboardButton("🔙 Back to Plans", callback_data='buy_api')],
-            [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
+⏱️ API activated in 5-10 minutes!
+
+⚠️ *IMPORTANT:* Don't forget Reference ID!
+                """
+                
+                keyboard = [
+                    [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
+                    [InlineKeyboardButton("🔙 Back", callback_data='buy_api')],
+                    [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
+            else:
+                await query.edit_message_text("❌ Payment request failed. Try again!", parse_mode='Markdown')
+        else:
+            await query.edit_message_text("❌ Payment system unavailable!", parse_mode='Markdown')
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show user's API keys"""
     if update.callback_query:
         query = update.callback_query
         await query.answer()
@@ -338,13 +327,13 @@ async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┃  🔑 *YOUR API KEYS*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-❌ No active API keys found.
+❌ No active API keys.
 
-Get started with a {DEFAULT_FREE_EXPIRY_DAYS}-day free trial!
+Get {DEFAULT_FREE_EXPIRY_DAYS}-day free trial!
         """
         keyboard = [
-            [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
-            [InlineKeyboardButton("💰 View Plans", callback_data='buy_api')]
+            [InlineKeyboardButton("🎁 Free Trial", callback_data='select_free')],
+            [InlineKeyboardButton("💰 Plans", callback_data='buy_api')]
         ]
     else:
         message = f"""
@@ -360,27 +349,23 @@ You have *{len(keys)}* active key(s):
         for idx, key in enumerate(keys, 1):
             plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
             
-            # Calculate expiry
             expiry_text = "No expiry"
             if key.get('expiry_date'):
                 try:
                     expiry = datetime.fromisoformat(key['expiry_date'])
                     days_left = (expiry - datetime.now()).days
-                    if days_left > 0:
-                        expiry_text = f"{days_left} days remaining"
-                    else:
-                        expiry_text = "Expired"
+                    expiry_text = f"{days_left} days left" if days_left > 0 else "Expired"
                 except:
                     pass
             
-            message += f"{plan_emoji} *KEY {idx}: {key.get('plan', 'N/A').upper()}*\n"
+            message += f"{plan_emoji} *{key.get('plan', 'N/A').upper()}*\n"
             message += f"`{key.get('api_key')}`\n"
             message += f"{expiry_text}\n\n"
             message += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         
         keyboard = [
-            [InlineKeyboardButton("🔝 Upgrade Plan", callback_data='buy_api')],
-            [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
+            [InlineKeyboardButton("🔝 Upgrade", callback_data='buy_api')],
+            [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -391,7 +376,6 @@ You have *{len(keys)}* active key(s):
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show pricing plans"""
     query = update.callback_query
     await query.answer()
     
@@ -400,78 +384,53 @@ async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┃  💰 *PRICING PLANS*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-🆓 *FREE TRIAL*
-₹0 | {DEFAULT_FREE_EXPIRY_DAYS} Days
+🆓 *FREE TRIAL* - ₹0
+{DEFAULT_FREE_EXPIRY_DAYS} Days | All Features
 
-• All premium features
-• AI Chat, Images, Videos
-• Code Expert included
-• No payment required
+💎 *BASIC* - ₹99/month
+30 Days | Unlimited Requests
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💎 *BASIC PLAN*
-₹99/month | 30 Days
-
-• Unlimited API requests
-• All AI features
-• Priority support
-• Fast response time
+⭐ *PRO* - ₹299/month
+30 Days | Priority + Advanced
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⭐ *PRO PLAN*
-₹299/month | 30 Days
-
-• Everything in Basic
-• Advanced AI models
-• Highest quality output
-• 24/7 dedicated support
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💸 *Payment: UPI*
-UPI ID: `{UPI_ID}`
-
-👉 Select a plan below:
+💸 Payment: UPI `{UPI_ID}`
     """
     
     keyboard = [
-        [InlineKeyboardButton(f"🎁 Start {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial", callback_data='select_free')],
-        [InlineKeyboardButton("💎 Buy Basic - ₹99", callback_data='select_basic')],
-        [InlineKeyboardButton("⭐ Buy Pro - ₹299", callback_data='select_pro')],
-        [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
+        [InlineKeyboardButton(f"🎁 {DEFAULT_FREE_EXPIRY_DAYS}D Free Trial", callback_data='select_free')],
+        [InlineKeyboardButton("💎 Basic ₹99", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Pro ₹299", callback_data='select_pro')],
+        [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(plans_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Go back to main menu"""
     query = update.callback_query
     await query.answer()
     
     menu_text = f"""
-🌟 *Welcome to Premium API Store!*
+🌟 *Premium API Store*
 
-Get instant access to powerful AI:
-
-🤖 AI Chat | 🎨 Images | 🎬 Videos | 💻 Code
+Powerful AI APIs:
+🤖 Chat | 🎨 Images | 🎬 Videos | 💻 Code
 
 🎁 Try free for {DEFAULT_FREE_EXPIRY_DAYS} days!
     """
     
     keyboard = [
-        [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
-        [InlineKeyboardButton("💰 View Pricing", callback_data='buy_api'),
+        [InlineKeyboardButton("🎁 Free Trial", callback_data='select_free')],
+        [InlineKeyboardButton("💰 Pricing", callback_data='buy_api'),
          InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
-        [InlineKeyboardButton("❓ Help & Support", callback_data='help_support')]
+        [InlineKeyboardButton("❓ Help", callback_data='help_support')]
     ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(menu_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help and support info"""
     query = update.callback_query
     await query.answer()
     
@@ -480,75 +439,163 @@ async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┃  ❓ *HELP & SUPPORT*  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-*📚 Commands:*
-
+*Commands:*
 • `/start` - Main menu
-• `/myapi` - View API keys
-• `/buy` - Browse plans
-• `/redeem <code>` - Use gift card
-• `/help` - This help page
+• `/myapi` - View keys
+• `/buy` - Plans
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Features:*
+• AI Chat (Claude 3.5)
+• Image Generation
+• Video Generation
+• Code Expert
 
-*💎 Features:*
+*Payment:*
+UPI: `{UPI_ID}`
 
-• AI Chat (Claude 3.5 Sonnet)
-• Image Generation (1024x1024)
-• Video Generation (HD)
-• Code Expert Assistant
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*💸 Payment:*
-
-UPI ID: `{UPI_ID}`
-Name: {UPI_NAME}
-
-Accepted: GPay, PhonePe, Paytm, etc.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*💬 Support:*
-
-Contact: @Anonononononon
-Response: 2-4 hours
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎁 Start your {DEFAULT_FREE_EXPIRY_DAYS}-day free trial now!
+*Support:*
+@Anonononononon
     """
     
-    keyboard = [[InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]]
+    keyboard = [[InlineKeyboardButton("« Menu", callback_data='back_to_menu')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
 
+# Admin Commands
+async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin verifies payment and activates API key"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if not PAYMENT_AVAILABLE:
+        await update.message.reply_text("❌ Payment system unavailable!")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "⚠️ Usage: `/verify REFERENCE_ID`\n\nExample:\n`/verify USER_123_BASIC`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    reference = context.args[0]
+    payment = payment_handler.get_pending_payment(reference)
+    
+    if not payment:
+        await update.message.reply_text(f"❌ Payment not found: `{reference}`", parse_mode='Markdown')
+        return
+    
+    if payment['status'] != 'pending':
+        await update.message.reply_text(f"⚠️ Already processed!")
+        return
+    
+    # Generate API key
+    api_key = db.create_api_key(
+        telegram_id=payment['user_id'],
+        username=payment['username'],
+        plan=payment['plan'],
+        expiry_days=30,
+        created_by_admin=True
+    )
+    
+    if api_key:
+        # Mark payment as verified
+        payment_handler.mark_payment_verified(reference)
+        
+        # Notify user
+        try:
+            await context.bot.send_message(
+                chat_id=payment['user_id'],
+                text=f"""
+✅ *Payment Verified!*
+
+Your API key is activated!
+
+*Plan:* {payment['plan'].upper()}
+*API Key:*
+`{api_key}`
+
+*Valid for:* 30 days
+
+🚀 Start using now!
+                """,
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+        
+        # Notify admin
+        await update.message.reply_text(
+            f"""
+✅ *Payment Verified!*
+
+Reference: `{reference}`
+User: @{payment['username']}
+Plan: {payment['plan'].upper()}
+Amount: ₹{payment['amount']}
+
+API Key: `{api_key}`
+
+✅ User notified!
+            """,
+            parse_mode='Markdown'
+        )
+        
+        # Notify channel
+        if notifier:
+            try:
+                await notifier.notify_new_api_key(
+                    username=payment['username'],
+                    user_id=payment['user_id'],
+                    plan=payment['plan'],
+                    backend=f"Paid ₹{payment['amount']}"
+                )
+            except:
+                pass
+    else:
+        await update.message.reply_text("❌ Failed to generate API key!")
+
+async def pending_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show pending payments to admin"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if not PAYMENT_AVAILABLE:
+        await update.message.reply_text("❌ Payment system unavailable!")
+        return
+    
+    summary = payment_handler.get_admin_summary()
+    await update.message.reply_text(summary, parse_mode='Markdown')
+
 def main():
-    """Start the bot"""
-    # Start health check server
+    # Start health server
     health_thread = Thread(target=run_health_server, daemon=True)
     health_thread.start()
-    logger.info("🌐 Health check server started")
     
     logger.info("🚀 Starting Bot...")
     logger.info(f"🎁 Free Trial: {DEFAULT_FREE_EXPIRY_DAYS} days")
     logger.info(f"💸 Payment: UPI ({UPI_ID})")
-    logger.info(f"🤖 AI: {'Enabled' if ai_router else 'Disabled'}")
-    logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
     
     application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
     
-    # Command handlers
+    # User commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("myapi", my_api_key))
     
-    # Callback handlers
+    # Admin commands
+    application.add_handler(CommandHandler("verify", verify_payment))
+    application.add_handler(CommandHandler("pending", pending_payments))
+    
+    # Callbacks
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
     application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
     application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
     application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
     
-    logger.info("✅ Bot started successfully!")
+    logger.info("✅ Bot started!")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
