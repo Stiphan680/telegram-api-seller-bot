@@ -279,9 +279,7 @@ Congratulations!
 3️⃣ Amount: ₹{amount}
 4️⃣ Add Note: `{reference}`
 5️⃣ Take screenshot
-6️⃣ Send to admin with:
-   • Reference: `{reference}`
-   • Screenshot
+6️⃣ Click "I Have Paid" button
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -290,17 +288,15 @@ Congratulations!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💬 *Contact Admin:* @Anonononononon
-
 ⏱️ API activated in 5-10 minutes!
 
 ⚠️ *IMPORTANT:* Don't forget Reference ID!
                 """
                 
                 keyboard = [
+                    [InlineKeyboardButton("✅ I Have Paid", callback_data=f'paid_{reference}')],
                     [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
-                    [InlineKeyboardButton("🔙 Back", callback_data='buy_api')],
-                    [InlineKeyboardButton("« Menu", callback_data='back_to_menu')]
+                    [InlineKeyboardButton("🔙 Back", callback_data='buy_api')]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(payment_msg, reply_markup=reply_markup, parse_mode='Markdown')
@@ -308,6 +304,205 @@ Congratulations!
                 await query.edit_message_text("❌ Payment request failed. Try again!", parse_mode='Markdown')
         else:
             await query.edit_message_text("❌ Payment system unavailable!", parse_mode='Markdown')
+
+async def payment_done_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'I Have Paid' button click"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Extract reference from callback data
+    reference = query.data.replace('paid_', '')
+    user_id = query.from_user.id
+    username = query.from_user.username or query.from_user.first_name
+    
+    if not PAYMENT_AVAILABLE:
+        await query.edit_message_text("❌ Payment system unavailable!")
+        return
+    
+    # Get payment details
+    payment = payment_handler.get_pending_payment(reference)
+    
+    if not payment:
+        await query.edit_message_text("❌ Payment not found!")
+        return
+    
+    # Notify user
+    await query.edit_message_text(
+        f"""
+✅ *Payment Notification Sent!*
+
+Your payment has been reported to admin.
+
+🎯 *Reference:* `{reference}`
+💵 *Amount:* ₹{payment['amount']}
+🏷️ *Plan:* {payment['plan'].upper()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 *Admin will verify your payment*
+
+⏱️ Expected time: 5-10 minutes
+✅ You'll get API key automatically
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 Need help? Contact @Anonononononon
+        """,
+        parse_mode='Markdown'
+    )
+    
+    # Send notification to admin with verify button
+    try:
+        admin_notification = f"""
+🚨 *NEW PAYMENT NOTIFICATION!*
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 *User Details:*
+• Username: @{username}
+• User ID: `{user_id}`
+
+💳 *Payment Details:*
+• Plan: *{payment['plan'].upper()}*
+• Amount: *₹{payment['amount']}*
+• Reference: `{reference}`
+
+📅 *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👇 *Click button below to verify*
+        """
+        
+        # Create verify button for admin
+        admin_keyboard = [
+            [InlineKeyboardButton("✅ Verify & Activate API", callback_data=f'verify_{reference}')],
+            [InlineKeyboardButton("📊 View All Pending", callback_data='admin_pending')]
+        ]
+        admin_reply_markup = InlineKeyboardMarkup(admin_keyboard)
+        
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=admin_notification,
+            parse_mode='Markdown',
+            reply_markup=admin_reply_markup
+        )
+        
+        logger.info(f"✅ Payment notification sent to admin for {username} - {reference}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to notify admin: {e}")
+
+async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin verifies payment from button - one click"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(query.from_user.id):
+        await query.answer("⛔ Admin only!", show_alert=True)
+        return
+    
+    # Extract reference from callback data
+    reference = query.data.replace('verify_', '')
+    
+    if not PAYMENT_AVAILABLE:
+        await query.answer("❌ Payment system unavailable!", show_alert=True)
+        return
+    
+    payment = payment_handler.get_pending_payment(reference)
+    
+    if not payment:
+        await query.answer(f"❌ Payment not found!", show_alert=True)
+        return
+    
+    if payment['status'] != 'pending':
+        await query.answer(f"⚠️ Already verified!", show_alert=True)
+        return
+    
+    # Generate API key
+    api_key = db.create_api_key(
+        telegram_id=payment['user_id'],
+        username=payment['username'],
+        plan=payment['plan'],
+        expiry_days=30,
+        created_by_admin=True
+    )
+    
+    if api_key:
+        # Mark payment as verified
+        payment_handler.mark_payment_verified(reference)
+        
+        # Notify user
+        try:
+            await context.bot.send_message(
+                chat_id=payment['user_id'],
+                text=f"""
+✅ *Payment Verified!*
+
+Your API key is activated!
+
+*Plan:* {payment['plan'].upper()}
+*API Key:*
+`{api_key}`
+
+*Valid for:* 30 days
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 Start using now!
+💬 Support: @Anonononononon
+                """,
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+        
+        # Update admin message
+        await query.edit_message_text(
+            f"""
+✅ *Payment Verified Successfully!*
+
+Reference: `{reference}`
+User: @{payment['username']}
+Plan: {payment['plan'].upper()}
+Amount: ₹{payment['amount']}
+
+API Key: `{api_key}`
+
+✅ User notified automatically!
+            """,
+            parse_mode='Markdown'
+        )
+        
+        # Notify channel
+        if notifier:
+            try:
+                await notifier.notify_new_api_key(
+                    username=payment['username'],
+                    user_id=payment['user_id'],
+                    plan=payment['plan'],
+                    backend=f"Paid ₹{payment['amount']}"
+                )
+            except:
+                pass
+    else:
+        await query.answer("❌ Failed to generate API key!", show_alert=True)
+
+async def admin_pending_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show pending payments from button"""
+    query = update.callback_query
+    await query.answer()
+    
+    if not is_admin(query.from_user.id):
+        await query.answer("⛔ Admin only!", show_alert=True)
+        return
+    
+    if not PAYMENT_AVAILABLE:
+        await query.answer("❌ Payment system unavailable!", show_alert=True)
+        return
+    
+    summary = payment_handler.get_admin_summary()
+    await query.edit_message_text(summary, parse_mode='Markdown')
 
 async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
@@ -463,7 +658,7 @@ UPI: `{UPI_ID}`
 
 # Admin Commands
 async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin verifies payment and activates API key"""
+    """Admin verifies payment via command"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("⛔ Admin only!")
         return
@@ -500,7 +695,6 @@ async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     if api_key:
-        # Mark payment as verified
         payment_handler.mark_payment_verified(reference)
         
         # Notify user
@@ -525,7 +719,6 @@ Your API key is activated!
         except:
             pass
         
-        # Notify admin
         await update.message.reply_text(
             f"""
 ✅ *Payment Verified!*
@@ -542,7 +735,6 @@ API Key: `{api_key}`
             parse_mode='Markdown'
         )
         
-        # Notify channel
         if notifier:
             try:
                 await notifier.notify_new_api_key(
@@ -570,13 +762,13 @@ async def pending_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(summary, parse_mode='Markdown')
 
 def main():
-    # Start health server
     health_thread = Thread(target=run_health_server, daemon=True)
     health_thread.start()
     
     logger.info("🚀 Starting Bot...")
     logger.info(f"🎁 Free Trial: {DEFAULT_FREE_EXPIRY_DAYS} days")
     logger.info(f"💸 Payment: UPI ({UPI_ID})")
+    logger.info(f"👤 Admin: {ADMIN_ID}")
     
     application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
     
@@ -594,8 +786,11 @@ def main():
     application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
     application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
+    application.add_handler(CallbackQueryHandler(payment_done_handler, pattern='^paid_'))
+    application.add_handler(CallbackQueryHandler(verify_from_button, pattern='^verify_'))
+    application.add_handler(CallbackQueryHandler(admin_pending_button, pattern='^admin_pending$'))
     
-    logger.info("✅ Bot started!")
+    logger.info("✅ Bot started successfully!")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
