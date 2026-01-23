@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from datetime import datetime
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -8,7 +9,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from database import Database
 from config import Config
 
-# Import AI Router, Notification Manager, and Manual Payment
+# Import AI Router, Notification Manager, Manual Payment, and System Monitor
 try:
     from ai_router import get_ai_router
     AI_ROUTER_AVAILABLE = True
@@ -31,6 +32,13 @@ except ImportError:
     PAYMENT_AVAILABLE = False
     payment_handler = None
     print("⚠️ Manual Payment not available")
+
+try:
+    from system_monitor import get_system_monitor
+    SYSTEM_MONITOR_AVAILABLE = True
+except ImportError:
+    SYSTEM_MONITOR_AVAILABLE = False
+    print("⚠️ System Monitor not available")
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -56,6 +64,18 @@ if NOTIFICATIONS_AVAILABLE:
         notifier = None
 else:
     notifier = None
+
+# Initialize System Monitor
+SYSTEM_CHANNEL_ID = "-1003350605488"  # Your monitoring channel
+if SYSTEM_MONITOR_AVAILABLE:
+    try:
+        system_monitor = get_system_monitor(Config.TELEGRAM_BOT_TOKEN, SYSTEM_CHANNEL_ID)
+        logger.info(f"✅ System Monitor initialized for channel {SYSTEM_CHANNEL_ID}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize system monitor: {e}")
+        system_monitor = None
+else:
+    system_monitor = None
 
 # Admin ID
 ADMIN_ID = 5451167865
@@ -86,6 +106,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             <p><strong>Admin ID:</strong> {ADMIN_ID}</p>
             <p><strong>AI Router:</strong> {'✅ Connected' if ai_router else '❌ Disabled'}</p>
             <p><strong>Notifications:</strong> {'✅ Enabled' if notifier else '❌ Disabled'}</p>
+            <p><strong>System Monitor:</strong> {'✅ Active' if system_monitor else '❌ Disabled'}</p>
             <p><strong>Payments:</strong> ✅ UPI ({UPI_ID})</p>
             <hr>
             <h2>📊 Statistics</h2>
@@ -149,7 +170,14 @@ PLANS = {
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    db.register_user(user.id, user.username or user.first_name)
+    is_new = db.register_user(user.id, user.username or user.first_name)
+    
+    # Notify about new user
+    if system_monitor and is_new:
+        try:
+            await system_monitor.notify_new_user(user.username or user.first_name, user.id)
+        except Exception as e:
+            logger.error(f"Failed to notify new user: {e}")
     
     welcome_message = f"""
 🎉 *Welcome to Premium API Store!*
@@ -238,7 +266,6 @@ Congratulations!
         else:
             await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key.", parse_mode='Markdown')
     else:
-        # Create payment request with reference ID
         if PAYMENT_AVAILABLE:
             payment_result = payment_handler.create_payment_request(
                 user_id=user_id,
@@ -348,6 +375,19 @@ Your payment has been reported to admin.
         parse_mode='Markdown'
     )
     
+    # Notify system monitor
+    if system_monitor:
+        try:
+            await system_monitor.notify_payment_received(
+                username=username,
+                user_id=user_id,
+                plan=payment['plan'],
+                amount=payment['amount'],
+                reference=reference
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify payment: {e}")
+    
     try:
         admin_notification = f"""
 🚨 *NEW PAYMENT NOTIFICATION!*
@@ -387,6 +427,11 @@ Your payment has been reported to admin.
         
     except Exception as e:
         logger.error(f"❌ Failed to notify admin: {e}")
+        if system_monitor:
+            try:
+                await system_monitor.notify_error("Admin Notification", str(e), "Payment notification")
+            except:
+                pass
 
 async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin verifies payment from button"""
@@ -423,6 +468,19 @@ async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if api_key:
         payment_handler.mark_payment_verified(reference)
+        
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_payment_verified(
+                    username=payment['username'],
+                    user_id=payment['user_id'],
+                    plan=payment['plan'],
+                    amount=payment['amount'],
+                    api_key=api_key
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify payment verified: {e}")
         
         try:
             await context.bot.send_message(
@@ -476,6 +534,11 @@ API Key: `{api_key}`
                 pass
     else:
         await query.answer("❌ Failed to generate API key!", show_alert=True)
+        if system_monitor:
+            try:
+                await system_monitor.notify_error("API Generation", "Failed to create API key", f"Payment: {reference}")
+            except:
+                pass
 
 async def admin_pending_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show pending payments from button"""
@@ -732,6 +795,19 @@ async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if api_key:
         payment_handler.mark_payment_verified(reference)
         
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_payment_verified(
+                    username=payment['username'],
+                    user_id=payment['user_id'],
+                    plan=payment['plan'],
+                    amount=payment['amount'],
+                    api_key=api_key
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify payment verified: {e}")
+        
         try:
             await context.bot.send_message(
                 chat_id=payment['user_id'],
@@ -827,11 +903,18 @@ async def generate_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     codes = []
     for i in range(count):
-        code = db.create_gift_card(plan=plan, validity_days=days, created_by=ADMIN_ID)
+        code = db.create_gift_card(plan=plan, max_uses=1, api_expiry_days=days, created_by=ADMIN_ID)
         if code:
             codes.append(code)
     
     if codes:
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_gift_generated(plan=plan, days=days, count=len(codes), admin_id=ADMIN_ID)
+            except Exception as e:
+                logger.error(f"Failed to notify gift generated: {e}")
+        
         codes_text = "\n".join([f"`{code}`" for code in codes])
         message = f"""
 ✅ *Gift Cards Generated!*
@@ -866,8 +949,8 @@ async def list_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No gift cards found!")
         return
     
-    active = [g for g in gifts if not g.get('is_used')]
-    used = [g for g in gifts if g.get('is_used')]
+    active = [g for g in gifts if g.get('is_active') and g.get('used_count', 0) < g.get('max_uses', 1)]
+    used = [g for g in gifts if g.get('used_count', 0) >= g.get('max_uses', 1)]
     
     message = f"""
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -885,7 +968,7 @@ Used: {len(used)}
 """
     
     for idx, gift in enumerate(active[:10], 1):
-        message += f"{idx}. `{gift['code']}` - {gift['plan'].upper()} ({gift['validity_days']}d)\n"
+        message += f"{idx}. `{gift['code']}` - {gift['plan'].upper()} ({gift.get('api_expiry_days', 'N/A')}d)\n"
     
     if len(active) > 10:
         message += f"\n... and {len(active) - 10} more\n"
@@ -900,7 +983,7 @@ async def delete_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if len(context.args) < 1:
         await update.message.reply_text(
-            "⚠️ Usage: `/giftdel CODE`\n\nExample:\n`/giftdel GIFT-ABC123`",
+            "⚠️ Usage: `/giftdel CODE`\n\nExample:\n`/giftdel GIFT-ABC-123`",
             parse_mode='Markdown'
         )
         return
@@ -920,7 +1003,7 @@ async def redeem_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if len(context.args) < 1:
         await update.message.reply_text(
-            "⚠️ Usage: `/redeem CODE`\n\nExample:\n`/redeem GIFT-ABC123`",
+            "⚠️ Usage: `/redeem CODE`\n\nExample:\n`/redeem GIFT-ABC-123`",
             parse_mode='Markdown'
         )
         return
@@ -931,7 +1014,14 @@ async def redeem_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if result['success']:
         api_key = result['api_key']
         plan = result['plan']
-        days = result['validity_days']
+        days = result.get('expiry_days', 'Unlimited')
+        
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_gift_redeemed(username=username, user_id=user_id, plan=plan, code=code)
+            except Exception as e:
+                logger.error(f"Failed to notify gift redeemed: {e}")
         
         message = f"""
 ✅ *Gift Card Redeemed!*
@@ -1051,6 +1141,13 @@ async def create_api_key_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     
     if api_key:
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_api_created(username=username, user_id=user_id, plan=plan, days=days, admin_id=ADMIN_ID)
+            except Exception as e:
+                logger.error(f"Failed to notify API created: {e}")
+        
         message = f"""
 ✅ *API Key Created!*
 
@@ -1107,9 +1204,57 @@ async def delete_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = db.delete_api_key(api_key)
     
     if result:
+        # Notify system monitor
+        if system_monitor:
+            try:
+                await system_monitor.notify_api_deleted(api_key=api_key, admin_id=ADMIN_ID)
+            except Exception as e:
+                logger.error(f"Failed to notify API deleted: {e}")
+        
         await update.message.reply_text(f"✅ API key deleted!\n\n`{api_key}`", parse_mode='Markdown')
     else:
         await update.message.reply_text(f"❌ API key not found!\n\n`{api_key}`", parse_mode='Markdown')
+
+async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get detailed statistics - admin only"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    stats = db.get_stats()
+    
+    # Send stats to channel
+    if system_monitor:
+        try:
+            await system_monitor.notify_stats(stats)
+        except Exception as e:
+            logger.error(f"Failed to send stats: {e}")
+    
+    message = f"""
+📊 *DETAILED STATISTICS*
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👥 *Users:* {stats.get('total_users', 0)}
+🔑 *API Keys:* {stats.get('active_keys', 0)}/{stats.get('total_keys', 0)}
+🎁 *Gift Cards:* {stats.get('active_gifts', 0)}/{stats.get('total_gifts', 0)}
+📊 *Total Requests:* {stats.get('total_requests', 0)}
+🎫 *Gift Redemptions:* {stats.get('total_redemptions', 0)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ *Updated:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
+    """
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def on_startup(application: Application):
+    """Called when bot starts"""
+    if system_monitor:
+        try:
+            await system_monitor.notify_bot_start(ADMIN_ID, DEFAULT_FREE_EXPIRY_DAYS, UPI_ID)
+        except Exception as e:
+            logger.error(f"Failed to send startup notification: {e}")
 
 def main():
     health_thread = Thread(target=run_health_server, daemon=True)
@@ -1119,6 +1264,7 @@ def main():
     logger.info(f"🎁 Free Trial: {DEFAULT_FREE_EXPIRY_DAYS} days")
     logger.info(f"💸 Payment: UPI ({UPI_ID})")
     logger.info(f"👤 Admin: {ADMIN_ID}")
+    logger.info(f"📢 System Monitor Channel: {SYSTEM_CHANNEL_ID}")
     
     application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
     
@@ -1137,6 +1283,7 @@ def main():
     application.add_handler(CommandHandler("apilist", list_all_apis))
     application.add_handler(CommandHandler("apicreate", create_api_key_admin))
     application.add_handler(CommandHandler("apidel", delete_api_key))
+    application.add_handler(CommandHandler("stats", get_stats))
     
     # Callbacks
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
@@ -1148,8 +1295,12 @@ def main():
     application.add_handler(CallbackQueryHandler(verify_from_button, pattern='^verify_'))
     application.add_handler(CallbackQueryHandler(admin_pending_button, pattern='^admin_pending$'))
     
+    # Startup notification
+    application.post_init = on_startup
+    
     logger.info("✅ Bot started successfully!")
     logger.info("👑 Admin panel: /admin")
+    logger.info("📊 Statistics: /stats")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
