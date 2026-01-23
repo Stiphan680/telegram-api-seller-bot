@@ -12,14 +12,17 @@ class Database:
         self.client = MongoClient(Config.MONGODB_URI)
         self.db = self.client[Config.DB_NAME]
         self.users = self.db['users']
-        self.api_keys = self.db['api_keys']  # Separate collection for API keys
-        self.gift_cards = self.db['gift_cards']  # Gift cards collection
+        self.api_keys = self.db['api_keys']
+        self.gift_cards = self.db['gift_cards']
+        self.referrals = self.db['referrals']  # New: Referrals collection
         
         # Create indexes
         self.users.create_index('telegram_id', unique=True)
         self.api_keys.create_index('api_key', unique=True)
         self.api_keys.create_index('telegram_id')
         self.gift_cards.create_index('code', unique=True)
+        self.referrals.create_index('referrer_id')
+        self.referrals.create_index('referred_id', unique=True)
     
     def generate_api_key(self):
         """Generate a unique API key"""
@@ -27,15 +30,14 @@ class Database:
     
     def generate_gift_code(self):
         """Generate a unique gift card code"""
-        # Format: GIFT-XXXX-XXXX-XXXX
         parts = []
         for _ in range(3):
             part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
             parts.append(part)
         return f"GIFT-{'-'.join(parts)}"
     
-    def create_user(self, telegram_id, username):
-        """Create user if not exists"""
+    def register_user(self, telegram_id, username):
+        """Register user in database"""
         try:
             existing = self.users.find_one({'telegram_id': telegram_id})
             if not existing:
@@ -46,17 +48,120 @@ class Database:
                     'updated_at': datetime.now().isoformat()
                 }
                 self.users.insert_one(user_data)
+            else:
+                # Update username if changed
+                self.users.update_one(
+                    {'telegram_id': telegram_id},
+                    {'$set': {'username': username, 'updated_at': datetime.now().isoformat()}}
+                )
             return True
         except Exception as e:
-            print(f"Error creating user: {e}")
+            print(f"Error registering user: {e}")
             return False
     
+    def create_user(self, telegram_id, username):
+        """Alias for register_user"""
+        return self.register_user(telegram_id, username)
+    
+    # ========== REFERRAL SYSTEM ==========
+    
+    def add_referral(self, referrer_id, referred_id, referred_username):
+        """Add a referral"""
+        try:
+            # Check if already referred
+            existing = self.referrals.find_one({'referred_id': referred_id})
+            if existing:
+                return False
+            
+            referral_data = {
+                'referrer_id': referrer_id,
+                'referred_id': referred_id,
+                'referred_username': referred_username,
+                'is_used': False,  # Whether used to claim free trial
+                'created_at': datetime.now().isoformat()
+            }
+            self.referrals.insert_one(referral_data)
+            return True
+        except Exception as e:
+            print(f"Error adding referral: {e}")
+            return False
+    
+    def get_referral_count(self, user_id):
+        """Get count of referrals for a user"""
+        try:
+            count = self.referrals.count_documents({'referrer_id': user_id})
+            return count
+        except Exception as e:
+            print(f"Error getting referral count: {e}")
+            return 0
+    
+    def get_user_referrals(self, user_id):
+        """Get all referrals made by a user"""
+        try:
+            referrals = list(self.referrals.find({'referrer_id': user_id}).sort('created_at', -1))
+            return referrals
+        except Exception as e:
+            print(f"Error getting referrals: {e}")
+            return []
+    
+    def mark_referrals_used(self, user_id):
+        """Mark referrals as used when claiming free trial"""
+        try:
+            self.referrals.update_many(
+                {'referrer_id': user_id, 'is_used': False},
+                {'$set': {'is_used': True}}
+            )
+            return True
+        except Exception as e:
+            print(f"Error marking referrals as used: {e}")
+            return False
+    
+    def get_referral_stats(self):
+        """Get referral statistics (admin)"""
+        try:
+            total_users = self.users.count_documents({})
+            total_referrals = self.referrals.count_documents({})
+            claimed_trials = self.referrals.count_documents({'is_used': True})
+            
+            # Top referrers
+            pipeline = [
+                {'$group': {'_id': '$referrer_id', 'count': {'$sum': 1}}},
+                {'$sort': {'count': -1}},
+                {'$limit': 10}
+            ]
+            top_refs = list(self.referrals.aggregate(pipeline))
+            
+            # Get usernames
+            top_referrers = []
+            for ref in top_refs:
+                user = self.users.find_one({'telegram_id': ref['_id']})
+                top_referrers.append({
+                    'telegram_id': ref['_id'],
+                    'username': user.get('username', 'Unknown') if user else 'Unknown',
+                    'count': ref['count']
+                })
+            
+            return {
+                'total_users': total_users,
+                'total_referrals': total_referrals,
+                'claimed_trials': claimed_trials,
+                'top_referrers': top_referrers
+            }
+        except Exception as e:
+            print(f"Error getting referral stats: {e}")
+            return {
+                'total_users': 0,
+                'total_referrals': 0,
+                'claimed_trials': 0,
+                'top_referrers': []
+            }
+    
+    # ========== API KEYS ==========
+    
     def create_api_key(self, telegram_id, username, plan='free', expiry_days=None, created_by_admin=False):
-        """Create new API key for user (allows multiple keys)"""
-        # Create user first if not exists
+        """Create new API key for user"""
         self.create_user(telegram_id, username)
         
-        # Check if user already has this plan (unless admin is creating)
         if not created_by_admin:
             existing_plan_key = self.api_keys.find_one({
                 'telegram_id': telegram_id,
@@ -65,11 +170,10 @@ class Database:
             })
             
             if existing_plan_key:
-                return None  # Already has active key for this plan
+                return None
         
         api_key = self.generate_api_key()
         
-        # Calculate expiry date
         expiry_date = None
         if expiry_days and expiry_days > 0:
             expiry_date = (datetime.now() + timedelta(days=expiry_days)).isoformat()
@@ -115,43 +219,30 @@ class Database:
             print(f"Error deleting API keys: {e}")
             return 0
     
+    # ========== GIFT CARDS ==========
+    
     def create_gift_card(self, plan, max_uses, card_expiry_days=None, api_expiry_days=None, created_by=None, note=""):
-        """
-        Create a gift card for redeeming API keys
-        
-        Args:
-            plan: Plan type (free/basic/pro)
-            max_uses: Maximum number of redemptions
-            card_expiry_days: Days until gift card expires (None = no expiry)
-            api_expiry_days: Days until generated API keys expire (None = permanent, 0 = permanent)
-            created_by: Admin telegram ID
-            note: Optional note
-        """
+        """Create a gift card for redeeming API keys"""
         code = self.generate_gift_code()
         
-        # Calculate expiry date for gift card itself
         card_expiry = None
         if card_expiry_days and card_expiry_days > 0:
             card_expiry = (datetime.now() + timedelta(days=card_expiry_days)).isoformat()
         
-        # Set API key expiry - None means permanent
         if api_expiry_days is None:
-            # Default based on plan if not specified
-            api_expiry_days = 7 if plan == 'free' else None  # None = permanent for premium
+            api_expiry_days = 7 if plan == 'free' else None
         elif api_expiry_days == 0:
-            # 0 explicitly means permanent
             api_expiry_days = None
-        # else use the provided value
         
         gift_data = {
             'code': code,
             'plan': plan,
             'max_uses': max_uses,
             'used_count': 0,
-            'used_by': [],  # List of telegram_ids who used it
+            'used_by': [],
             'is_active': True,
-            'card_expiry': card_expiry,  # When gift card expires
-            'api_expiry_days': api_expiry_days,  # Days until API keys expire (None = permanent)
+            'card_expiry': card_expiry,
+            'api_expiry_days': api_expiry_days,
             'created_by': created_by,
             'note': note,
             'created_at': datetime.now().isoformat(),
@@ -173,37 +264,31 @@ class Database:
             if not gift:
                 return {'success': False, 'error': 'Invalid gift code'}
             
-            # Check if active
             if not gift.get('is_active'):
                 return {'success': False, 'error': 'Gift code is no longer active'}
             
-            # Check if expired
             if gift.get('card_expiry'):
                 expiry = datetime.fromisoformat(gift['card_expiry'])
                 if datetime.now() > expiry:
                     return {'success': False, 'error': 'Gift code has expired'}
             
-            # Check max uses
             if gift['used_count'] >= gift['max_uses']:
                 return {'success': False, 'error': 'Gift code has been fully redeemed'}
             
-            # Check if user already used this code
             if telegram_id in gift.get('used_by', []):
                 return {'success': False, 'error': 'You have already used this gift code'}
             
-            # Create API key
             api_key = self.create_api_key(
                 telegram_id=telegram_id,
                 username=username,
                 plan=gift['plan'],
                 expiry_days=gift.get('api_expiry_days'),
-                created_by_admin=False  # Gift redemption, not admin direct
+                created_by_admin=False
             )
             
             if not api_key:
                 return {'success': False, 'error': f'You already have an active {gift["plan"]} plan key'}
             
-            # Update gift card usage
             self.gift_cards.update_one(
                 {'code': code.upper()},
                 {
@@ -227,7 +312,6 @@ class Database:
     def update_gift_card_api_expiry(self, code, api_expiry_days):
         """Update API key expiry days for a gift card"""
         try:
-            # Convert 0 or negative to None (permanent)
             if api_expiry_days is not None and api_expiry_days <= 0:
                 api_expiry_days = None
             
@@ -289,6 +373,8 @@ class Database:
             print(f"Error deleting gift card: {e}")
             return False
     
+    # ========== VALIDATION & QUERIES ==========
+    
     def validate_api_key(self, api_key):
         """Validate API key and return key data"""
         try:
@@ -296,11 +382,9 @@ class Database:
             if not key:
                 return None
             
-            # Check if expired
             if key.get('expiry_date'):
                 expiry = datetime.fromisoformat(key['expiry_date'])
                 if datetime.now() > expiry:
-                    # Auto-deactivate expired key
                     self.deactivate_api_key(api_key)
                     return None
             
@@ -335,7 +419,6 @@ class Database:
                 'is_active': True
             }))
             
-            # Filter out expired keys
             active_keys = []
             for key in keys:
                 if key.get('expiry_date'):
@@ -422,7 +505,6 @@ class Database:
         """Set expiry date for API key"""
         try:
             if days <= 0:
-                # Remove expiry (permanent)
                 return self.remove_expiry(api_key)
             
             expiry_date = (datetime.now() + timedelta(days=days)).isoformat()
@@ -457,6 +539,8 @@ class Database:
             print(f"Error removing expiry: {e}")
             return False
     
+    # ========== ADMIN FUNCTIONS ==========
+    
     def get_all_users(self):
         """Get all users (admin function)"""
         try:
@@ -483,6 +567,7 @@ class Database:
             active_keys = self.api_keys.count_documents({'is_active': True})
             total_gifts = self.gift_cards.count_documents({})
             active_gifts = self.gift_cards.count_documents({'is_active': True})
+            total_referrals = self.referrals.count_documents({})
             
             # Total requests
             pipeline = [
@@ -505,7 +590,8 @@ class Database:
                 'total_requests': total_requests,
                 'total_gifts': total_gifts,
                 'active_gifts': active_gifts,
-                'total_redemptions': total_redemptions
+                'total_redemptions': total_redemptions,
+                'total_referrals': total_referrals
             }
         except Exception as e:
             print(f"Error getting stats: {e}")
@@ -514,7 +600,6 @@ class Database:
     def deactivate_expired_keys(self):
         """Deactivate all expired keys (run periodically)"""
         try:
-            # Find all expired keys
             all_keys = self.api_keys.find({'is_active': True, 'expiry_date': {'$ne': None}})
             
             count = 0
