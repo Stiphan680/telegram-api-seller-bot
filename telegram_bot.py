@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from database import Database
 from config import Config
 
-# Import AI Router, Notification Manager, Manual Payment, and API Key Tester
+# Import AI Router, Notification Manager, and Manual Payment
 try:
     from ai_router import get_ai_router
     AI_ROUTER_AVAILABLE = True
@@ -32,6 +32,7 @@ except ImportError:
     payment_handler = None
     print("⚠️ Manual Payment not available")
 
+# NEW: Import API Key Tester
 try:
     from api_key_tester import get_api_key_tester
     api_tester = get_api_key_tester()
@@ -103,9 +104,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(status_html.encode())
     
     def log_message(self, format, *args):
-        pass
+        pass  # Suppress logs
 
 def run_health_server():
+    """Run health check HTTP server on port 10000 for Render"""
     port = int(os.environ.get('PORT', 10000))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     logger.info(f"🌐 Health check server running on port {port}")
@@ -177,6 +179,7 @@ def format_expiry(expiry_date_str):
         return "Invalid date"
 
 async def get_ai_backend_info():
+    """Get premium AI backend branding"""
     if ai_router:
         status = ai_router.get_backend_status()
         if 'perplexity' in status.get('available_backends', []):
@@ -187,6 +190,7 @@ async def get_ai_backend_info():
 # ============= NEW: API KEY TESTER COMMAND =============
 
 async def test_api_key_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test an API key: /testapi <api_key>"""
     if not TESTER_AVAILABLE or not api_tester:
         await update.message.reply_text("❌ API key testing is not available.")
         return
@@ -235,4 +239,5 @@ async def test_api_key_command(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"API test error: {e}")
         await test_msg.edit_text(f"❌ *Test Failed*\n\nError: {str(e)}\n\nPlease try again or contact support.", parse_mode='Markdown')
 
-# Continuing with rest of the file...
+# =============  REST OF THE CODE (UNCHANGED) =============
+
