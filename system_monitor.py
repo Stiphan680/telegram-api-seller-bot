@@ -38,17 +38,18 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⏰ *Start Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
+⏰ *Start Time*
+{datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
 
-📊 *Bot Configuration:*
-• Admin ID: `{admin_id}`
-• Free Trial: {free_trial_days} days
-• Payment: UPI `{upi_id}`
+📊 *Bot Configuration*
+Admin ID: `{admin_id}`
+Free Trial: {free_trial_days} days
+Payment: UPI `{upi_id}`
 
-✅ *Status:* All systems operational
-✅ *Database:* Connected
-✅ *Payment:* Active
-✅ *Notifications:* Enabled
+✅ *System Status*
+Database: Connected
+Payment: Active
+Notifications: Enabled
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -66,10 +67,14 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⏰ *Stop Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
-🕒 *Uptime:* {hours:.2f} hours
+⏰ *Stop Time*
+{datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
 
-💬 *Reason:* {reason}
+🕒 *Uptime*
+{hours:.2f} hours
+
+💬 *Reason*
+{reason}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -125,11 +130,11 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 *Users:* {stats.get('total_users', 0)}
+👥 *Users:* {stats.get('total_users', 0)}
 🔑 *API Keys:* {stats.get('active_keys', 0)}/{stats.get('total_keys', 0)}
 🎁 *Gift Cards:* {stats.get('active_gifts', 0)}/{stats.get('total_gifts', 0)}
 📊 *Requests:* {stats.get('total_requests', 0)}
-🎁 *Redemptions:* {stats.get('total_redemptions', 0)}
+🎫 *Redemptions:* {stats.get('total_redemptions', 0)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -161,11 +166,17 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 *User:* @{username} (`{user_id}`)
-🏷️ *Plan:* {plan.upper()}
-💵 *Amount:* ₹{amount}
-🎯 *Reference:* `{reference}`
-⏰ *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
+👤 *User*
+Username: @{username}
+User ID: `{user_id}`
+
+💳 *Payment Details*
+Plan: {plan.upper()}
+Amount: ₹{amount}
+Reference: `{reference}`
+
+⏰ *Time*
+{datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -180,11 +191,19 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 *User:* @{username} (`{user_id}`)
-🏷️ *Plan:* {plan.upper()}
-💵 *Amount:* ₹{amount}
-🔑 *API Key:* `{api_key[:20]}...`
-⏰ *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
+👤 *User*
+Username: @{username}
+User ID: `{user_id}`
+
+💳 *Payment Details*
+Plan: {plan.upper()}
+Amount: ₹{amount}
+
+🔑 *API Key*
+`{api_key[:20]}...`
+
+⏰ *Time*
+{datetime.now().strftime('%Y-%m-%d %H:%M:%S IST')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -275,18 +294,21 @@ class SystemMonitor:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📅 *Date:* {datetime.now().strftime('%Y-%m-%d')}
-🕒 *Uptime:* {hours:.2f} hours
+📅 *Date*
+{datetime.now().strftime('%Y-%m-%d')}
 
-*📊 Today's Activity:*
-• New Users: {new_users_today}
-• New API Keys: {new_keys_today}
+🕒 *Uptime*
+{hours:.2f} hours
 
-*📊 Overall Stats:*
-• Total Users: {stats.get('total_users', 0)}
-• Active Keys: {stats.get('active_keys', 0)}
-• Total Requests: {stats.get('total_requests', 0)}
-• Gift Cards: {stats.get('active_gifts', 0)}
+📊 *Today's Activity*
+New Users: {new_users_today}
+New API Keys: {new_keys_today}
+
+📊 *Overall Stats*
+Total Users: {stats.get('total_users', 0)}
+Active Keys: {stats.get('active_keys', 0)}
+Total Requests: {stats.get('total_requests', 0)}
+Gift Cards: {stats.get('active_gifts', 0)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
