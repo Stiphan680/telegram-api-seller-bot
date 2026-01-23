@@ -61,9 +61,9 @@ else:
 # Configuration
 ADMIN_ID = 5451167865
 DEFAULT_FREE_EXPIRY_DAYS = 2
-REQUIRED_CHANNEL = "@ShadowAPIstore"  # Channel to join
-REQUIRED_CHANNEL_ID = "-1002705568330"  # Channel ID for verification
-REFERRALS_FOR_FREE_API = 2  # Number of referrals needed for free trial
+REQUIRED_CHANNEL = "@ShadowAPIstore"
+REQUIRED_CHANNEL_ID = "-1002705568330"
+REFERRALS_FOR_FREE_API = 2
 
 # Health Check Server
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -161,16 +161,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             referrer_id = int(referrer_id)
             if referrer_id != user_id:
-                # Check if user already exists
                 existing_user = db.users.find_one({'telegram_id': user_id})
                 if not existing_user:
-                    # Check channel membership first
                     is_member = await check_channel_membership(context, user_id)
                     if is_member:
-                        # Add referral
                         db.add_referral(referrer_id, user_id, username)
                         
-                        # Notify referrer
                         try:
                             ref_count = db.get_referral_count(referrer_id)
                             await context.bot.send_message(
@@ -211,46 +207,180 @@ Use buttons below or commands
         ]
     else:
         welcome_text = f"""
-🎉 *Welcome to Shadow API Store!*
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🎉 *SHADOW API STORE*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
-Hello {user.first_name}!
+Welcome {user.first_name}! 👋
 
-💎 *Premium AI Features:*
-🤖 AI Chat (Claude 3.5)
-🎨 Image Generation (1024x1024)
-🎬 Video Generation (HD)
-💻 Code Expert Assistant
+💎 *Premium AI Features Available:*
+
+🤖 *AI Chat* - Claude 3.5 Sonnet
+   • Smart conversations
+   • Multi-language support
+   • Context awareness
+
+🎨 *Image Generation* - Flux AI
+   • High quality 1024x1024
+   • Fast generation
+   • Creative & realistic
+
+🎬 *Video Generation* - Mochi AI
+   • HD quality videos
+   • Smooth animations
+   • 1-10 seconds duration
+
+💻 *Code Expert* - Claude Assistant
+   • Multi-language coding
+   • Clean & documented
+   • Debugging help
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎁 *Get Free Trial:*
-Invite {REFERRALS_FOR_FREE_API} friends to get {DEFAULT_FREE_EXPIRY_DAYS}-day free trial!
+🎁 *Get {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial:*
 
-📊 *Your Referrals:* {ref_count}/{REFERRALS_FOR_FREE_API}
-🔗 *Your Link:* `{ref_link}`
+👉 *How to get FREE access:*
+1️⃣ Join our channel: {REQUIRED_CHANNEL}
+2️⃣ Share your referral link with friends
+3️⃣ Get {REFERRALS_FOR_FREE_API} friends to join
+4️⃣ Both you & friends must join channel
+5️⃣ Claim your FREE {DEFAULT_FREE_EXPIRY_DAYS}-day trial!
+
+📊 *Your Progress:*
+Referrals: {ref_count}/{REFERRALS_FOR_FREE_API} {'✅ Complete!' if ref_count >= REFERRALS_FOR_FREE_API else '⏳ In Progress'}
+
+🔗 *Your Referral Link:*
+`{ref_link}`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️ *Important:* Friends must join {REQUIRED_CHANNEL} for referral to count!
+💡 *Quick Tip:*
+Share on WhatsApp, Facebook, or Telegram groups!
+More referrals = More free trials!
+
+⚠️ *Important:*
+• Both you & friends must join {REQUIRED_CHANNEL}
+• Each friend = 1 referral
+• After {REFERRALS_FOR_FREE_API} refs, claim FREE trial!
         """
         
         if ref_count >= REFERRALS_FOR_FREE_API:
             keyboard = [
-                [InlineKeyboardButton("🎁 Claim Free Trial", callback_data='claim_free_trial')],
-                [InlineKeyboardButton("💰 Buy Premium", callback_data='buy_api'),
-                 InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
-                [InlineKeyboardButton("👥 My Referrals", callback_data='my_referrals')]
+                [InlineKeyboardButton("🎁 Claim Your Free Trial!", callback_data='claim_free_trial')],
+                [InlineKeyboardButton("💰 Buy Premium Plan", callback_data='buy_api'),
+                 InlineKeyboardButton("📊 My API Keys", callback_data='my_api')],
+                [InlineKeyboardButton("👥 My Referrals", callback_data='my_referrals'),
+                 InlineKeyboardButton("❓ Help", callback_data='help_support')]
             ]
         else:
             keyboard = [
-                [InlineKeyboardButton(f"📢 Join Channel ({REQUIRED_CHANNEL})", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+                [InlineKeyboardButton(f"📣 Join Channel First!", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+                [InlineKeyboardButton("🎁 Check Referral Progress", callback_data='show_referral_progress')],
                 [InlineKeyboardButton("💰 Buy Premium", callback_data='buy_api'),
                  InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
-                [InlineKeyboardButton("👥 My Referrals", callback_data='my_referrals')]
+                [InlineKeyboardButton("👥 Referrals", callback_data='my_referrals'),
+                 InlineKeyboardButton("❓ Help", callback_data='help_support')]
             ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def show_referral_progress(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show referral progress when free trial button clicked"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    username = query.from_user.username or query.from_user.first_name
+    ref_count = db.get_referral_count(user_id)
+    ref_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
+    referrals = db.get_user_referrals(user_id)
+    
+    # Check channel membership
+    is_member = await check_channel_membership(context, user_id)
+    
+    if ref_count >= REFERRALS_FOR_FREE_API:
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ✅ *REFERRALS COMPLETE!*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Congratulations! 🎉
+
+📊 *Your Referral Status:*
+Referrals: {ref_count}/{REFERRALS_FOR_FREE_API} ✅ Complete!
+
+✅ You can now claim your FREE trial!
+
+🎁 Click "Claim Free Trial" button below!
+        """
+        keyboard = [
+            [InlineKeyboardButton("🎁 Claim Free Trial Now!", callback_data='claim_free_trial')],
+            [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
+        ]
+    else:
+        needed = REFERRALS_FOR_FREE_API - ref_count
+        progress_bar = '✅' * ref_count + '⚪' * needed
+        
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  📊 *REFERRAL PROGRESS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*Current Status:*
+{progress_bar}
+
+📊 Referrals: {ref_count}/{REFERRALS_FOR_FREE_API}
+🔴 Need {needed} more {'friend' if needed == 1 else 'friends'}!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👉 *What to do:*
+
+1️⃣ {'✅ Joined' if is_member else '❌ Join'} channel: {REQUIRED_CHANNEL}
+   {'Great! Now share your link!' if is_member else 'Click button below to join!'}
+
+2️⃣ Share your referral link:
+   `{ref_link}`
+
+3️⃣ Ask friends to:
+   • Join {REQUIRED_CHANNEL} (MUST!)
+   • Click your link
+   • Start the bot
+
+4️⃣ After {REFERRALS_FOR_FREE_API} referrals:
+   • Get FREE {DEFAULT_FREE_EXPIRY_DAYS}-day trial!
+   • Full access to all features!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 *Your Referrals So Far:*
+"""
+        
+        if referrals:
+            for idx, ref in enumerate(referrals[:5], 1):
+                message += f"  {idx}. @{ref.get('referred_username', 'User')} ✅\n"
+        else:
+            message += "  No referrals yet. Start sharing!
+"
+        
+        message += f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💡 *Pro Tip:*\nShare on WhatsApp, Facebook groups!\nMore shares = Faster FREE trial!"
+        
+        if not is_member:
+            keyboard = [
+                [InlineKeyboardButton(f"📣 Join {REQUIRED_CHANNEL} Now!", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+                [InlineKeyboardButton("🔄 Refresh Status", callback_data='show_referral_progress')],
+                [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
+            ]
+        else:
+            keyboard = [
+                [InlineKeyboardButton("👥 View All Referrals", callback_data='my_referrals')],
+                [InlineKeyboardButton("🔄 Refresh", callback_data='show_referral_progress')],
+                [InlineKeyboardButton("« Back", callback_data='back_to_menu')]
+            ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def claim_free_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Claim free trial using referrals"""
@@ -264,8 +394,17 @@ async def claim_free_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_count = db.get_referral_count(user_id)
     
     if ref_count < REFERRALS_FOR_FREE_API:
+        needed = REFERRALS_FOR_FREE_API - ref_count
         await query.edit_message_text(
-            f"❌ *Not Enough Referrals!*\n\nYou have {ref_count}/{REFERRALS_FOR_FREE_API} referrals.\n\nInvite {REFERRALS_FOR_FREE_API - ref_count} more friends!",
+            f"""
+❌ *Not Enough Referrals!*
+
+You have: {ref_count}/{REFERRALS_FOR_FREE_API}
+You need: {needed} more!
+
+👉 Share your referral link with friends!
+⚠️ Friends MUST join {REQUIRED_CHANNEL}
+            """,
             parse_mode='Markdown'
         )
         return
@@ -273,13 +412,19 @@ async def claim_free_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if already claimed
     if db.has_active_plan(user_id, 'free'):
         await query.edit_message_text(
-            "⚠️ *Already Active!*\n\nYou already have an active free trial.",
+            """
+⚠️ *Already Active!*
+
+You already have an active free trial.
+
+Use `/myapi` to view your keys.
+            """,
             parse_mode='Markdown'
         )
         return
     
     # Generate free API key
-    await query.edit_message_text("⏳ *Generating your free API key...*", parse_mode='Markdown')
+    await query.edit_message_text("⏳ *Generating your free API key...*\n\nPlease wait...", parse_mode='Markdown')
     
     api_key = db.create_api_key(user_id, username, 'free', expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
     
@@ -299,6 +444,7 @@ Congratulations! 🎉
 
 *Plan:* FREE TRIAL
 *Validity:* {DEFAULT_FREE_EXPIRY_DAYS} days
+*Status:* ✅ Active
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -310,11 +456,23 @@ Congratulations! 🎉
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📖 API Docs: /myapi
+💻 *API Base URL:*
+https://telegram-api-seller-bot-1.onrender.com
+
+📖 *Endpoints:*
+• POST /chat - AI Chat
+• POST /image - Generate Images
+• POST /video - Generate Videos
+• POST /code - Code Expert
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 Use `/myapi` to view API documentation!
         """
         
         keyboard = [
             [InlineKeyboardButton("📊 View My Keys", callback_data='my_api')],
+            [InlineKeyboardButton("🔝 Upgrade to Premium", callback_data='buy_api')],
             [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -327,7 +485,7 @@ Congratulations! 🎉
                     username=username,
                     user_id=user_id,
                     plan='free',
-                    backend=f"Referral (2 refs)"
+                    backend=f"Referral ({ref_count} refs)"
                 )
             except:
                 pass
@@ -365,11 +523,12 @@ Progress: {'✅ Completed!' if ref_count >= REFERRALS_FOR_FREE_API else f'{ref_c
 """
     
     if referrals:
-        for idx, ref in enumerate(referrals[:5], 1):
-            status = "✅" if ref.get('is_used') else "🟢"
-            message += f"{status} @{ref.get('referred_username', 'User')}\n"
+        for idx, ref in enumerate(referrals[:10], 1):
+            status = "✅ Used" if ref.get('is_used') else "🟢 Active"
+            message += f"{idx}. @{ref.get('referred_username', 'User')} - {status}\n"
     else:
-        message += "No referrals yet.\n"
+        message += "No referrals yet. Start sharing!
+"
     
     message += f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n💡 *How it works:*\n1. Share your link\n2. Friends join {REQUIRED_CHANNEL}\n3. Get {REFERRALS_FOR_FREE_API} referrals\n4. Claim free trial!"
     
@@ -379,7 +538,6 @@ Progress: {'✅ Completed!' if ref_count >= REFERRALS_FOR_FREE_API else f'{ref_c
 
 # Admin Functions
 async def admin_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin view all referrals"""
     query = update.callback_query
     await query.answer()
     
@@ -542,7 +700,7 @@ Your referrals: {ref_count}/{REFERRALS_FOR_FREE_API}
         message = f"""
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃  🔑 *YOUR API KEYS*  ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 You have {len(keys)} active key(s):
 
@@ -612,6 +770,7 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     ref_count = db.get_referral_count(user_id)
+    ref_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
     
     menu_text = f"""
 🎉 *Shadow API Store*
@@ -620,6 +779,7 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🎁 Refer & Earn Free Trial
 
 📊 Your Referrals: {ref_count}/{REFERRALS_FOR_FREE_API}
+🔗 Your Link: `{ref_link}`
     """
     
     if ref_count >= REFERRALS_FOR_FREE_API:
@@ -631,7 +791,8 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     else:
         keyboard = [
-            [InlineKeyboardButton(f"📢 Join {REQUIRED_CHANNEL}", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+            [InlineKeyboardButton(f"📣 Join {REQUIRED_CHANNEL}", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
+            [InlineKeyboardButton("🎁 Check Progress", callback_data='show_referral_progress')],
             [InlineKeyboardButton("💰 Buy Premium", callback_data='buy_api'),
              InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
             [InlineKeyboardButton("👥 Referrals", callback_data='my_referrals')]
@@ -639,6 +800,35 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(menu_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    help_text = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ❓ *HELP & SUPPORT*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*📚 Commands:*
+• `/start` - Main menu
+• `/myapi` - View API keys
+
+*💎 Features:*
+• AI Chat (Claude 3.5)
+• Image Generation
+• Video Generation
+• Code Expert
+
+*💬 Support:*
+Contact: @Anonononononon
+
+🎁 Refer {REFERRALS_FOR_FREE_API} friends for FREE trial!
+    """
+    
+    keyboard = [[InlineKeyboardButton("« Back", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 def main():
     health_thread = Thread(target=run_health_server, daemon=True)
@@ -656,11 +846,13 @@ def main():
     application.add_handler(CommandHandler("myapi", my_api_key))
     
     # Callback handlers
+    application.add_handler(CallbackQueryHandler(show_referral_progress, pattern='^show_referral_progress$'))
     application.add_handler(CallbackQueryHandler(claim_free_trial, pattern='^claim_free_trial$'))
     application.add_handler(CallbackQueryHandler(my_referrals, pattern='^my_referrals$'))
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
     application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
     application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
+    application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
     
     # Admin callbacks
     application.add_handler(CallbackQueryHandler(admin_referrals, pattern='^admin_referrals$'))
