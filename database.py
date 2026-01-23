@@ -14,15 +14,12 @@ class Database:
         self.users = self.db['users']
         self.api_keys = self.db['api_keys']
         self.gift_cards = self.db['gift_cards']
-        self.referrals = self.db['referrals']  # New: Referrals collection
         
         # Create indexes
         self.users.create_index('telegram_id', unique=True)
         self.api_keys.create_index('api_key', unique=True)
         self.api_keys.create_index('telegram_id')
         self.gift_cards.create_index('code', unique=True)
-        self.referrals.create_index('referrer_id')
-        self.referrals.create_index('referred_id', unique=True)
     
     def generate_api_key(self):
         """Generate a unique API key"""
@@ -62,99 +59,6 @@ class Database:
     def create_user(self, telegram_id, username):
         """Alias for register_user"""
         return self.register_user(telegram_id, username)
-    
-    # ========== REFERRAL SYSTEM ==========
-    
-    def add_referral(self, referrer_id, referred_id, referred_username):
-        """Add a referral"""
-        try:
-            # Check if already referred
-            existing = self.referrals.find_one({'referred_id': referred_id})
-            if existing:
-                return False
-            
-            referral_data = {
-                'referrer_id': referrer_id,
-                'referred_id': referred_id,
-                'referred_username': referred_username,
-                'is_used': False,  # Whether used to claim free trial
-                'created_at': datetime.now().isoformat()
-            }
-            self.referrals.insert_one(referral_data)
-            return True
-        except Exception as e:
-            print(f"Error adding referral: {e}")
-            return False
-    
-    def get_referral_count(self, user_id):
-        """Get count of referrals for a user"""
-        try:
-            count = self.referrals.count_documents({'referrer_id': user_id})
-            return count
-        except Exception as e:
-            print(f"Error getting referral count: {e}")
-            return 0
-    
-    def get_user_referrals(self, user_id):
-        """Get all referrals made by a user"""
-        try:
-            referrals = list(self.referrals.find({'referrer_id': user_id}).sort('created_at', -1))
-            return referrals
-        except Exception as e:
-            print(f"Error getting referrals: {e}")
-            return []
-    
-    def mark_referrals_used(self, user_id):
-        """Mark referrals as used when claiming free trial"""
-        try:
-            self.referrals.update_many(
-                {'referrer_id': user_id, 'is_used': False},
-                {'$set': {'is_used': True}}
-            )
-            return True
-        except Exception as e:
-            print(f"Error marking referrals as used: {e}")
-            return False
-    
-    def get_referral_stats(self):
-        """Get referral statistics (admin)"""
-        try:
-            total_users = self.users.count_documents({})
-            total_referrals = self.referrals.count_documents({})
-            claimed_trials = self.referrals.count_documents({'is_used': True})
-            
-            # Top referrers
-            pipeline = [
-                {'$group': {'_id': '$referrer_id', 'count': {'$sum': 1}}},
-                {'$sort': {'count': -1}},
-                {'$limit': 10}
-            ]
-            top_refs = list(self.referrals.aggregate(pipeline))
-            
-            # Get usernames
-            top_referrers = []
-            for ref in top_refs:
-                user = self.users.find_one({'telegram_id': ref['_id']})
-                top_referrers.append({
-                    'telegram_id': ref['_id'],
-                    'username': user.get('username', 'Unknown') if user else 'Unknown',
-                    'count': ref['count']
-                })
-            
-            return {
-                'total_users': total_users,
-                'total_referrals': total_referrals,
-                'claimed_trials': claimed_trials,
-                'top_referrers': top_referrers
-            }
-        except Exception as e:
-            print(f"Error getting referral stats: {e}")
-            return {
-                'total_users': 0,
-                'total_referrals': 0,
-                'claimed_trials': 0,
-                'top_referrers': []
-            }
     
     # ========== API KEYS ==========
     
@@ -567,7 +471,6 @@ class Database:
             active_keys = self.api_keys.count_documents({'is_active': True})
             total_gifts = self.gift_cards.count_documents({})
             active_gifts = self.gift_cards.count_documents({'is_active': True})
-            total_referrals = self.referrals.count_documents({})
             
             # Total requests
             pipeline = [
@@ -590,8 +493,7 @@ class Database:
                 'total_requests': total_requests,
                 'total_gifts': total_gifts,
                 'active_gifts': active_gifts,
-                'total_redemptions': total_redemptions,
-                'total_referrals': total_referrals
+                'total_redemptions': total_redemptions
             }
         except Exception as e:
             print(f"Error getting stats: {e}")
