@@ -89,6 +89,17 @@ UPI_NAME = "Aman"
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
+# Escape markdown special characters
+def escape_markdown(text):
+    """Escape special characters for Markdown"""
+    if not text:
+        return text
+    # Escape markdown special characters
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
 # Health Check Server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -245,7 +256,7 @@ Congratulations!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💎 *Access to:*
-• AI Chat, Images, Videos, Code
+AI Chat, Images, Videos, Code
 
 📌 Use `/myapi` to view keys!
             """
@@ -389,25 +400,27 @@ Your payment has been reported to admin.
             logger.error(f"Failed to notify payment: {e}")
     
     try:
+        # Simplified admin notification without bullets
         admin_notification = f"""
-🚨 *NEW PAYMENT NOTIFICATION!*
+🚨 *NEW PAYMENT NOTIFICATION*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 *User Details:*
-• Username: @{username}
-• User ID: `{user_id}`
+👤 *User Details*
+Username: @{username}
+User ID: `{user_id}`
 
-💳 *Payment Details:*
-• Plan: *{payment['plan'].upper()}*
-• Amount: *₹{payment['amount']}*
-• Reference: `{reference}`
+💳 *Payment Details*
+Plan: {payment['plan'].upper()}
+Amount: ₹{payment['amount']}
+Reference: `{reference}`
 
-📅 *Time:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+📅 *Time*
+{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👇 *Click button below to verify*
+👇 Click button below to verify
         """
         
         admin_keyboard = [
@@ -687,16 +700,16 @@ async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 *Commands:*
-• `/start` - Main menu
-• `/myapi` - View keys
-• `/buy` - Plans
-• `/redeem CODE` - Use gift card
+`/start` - Main menu
+`/myapi` - View keys
+`/buy` - Plans
+`/redeem CODE` - Use gift card
 
 *Features:*
-• AI Chat (Claude 3.5)
-• Image Generation
-• Video Generation
-• Code Expert
+AI Chat (Claude 3.5)
+Image Generation
+Video Generation
+Code Expert
 
 *Payment:*
 UPI: `{UPI_ID}`
@@ -725,9 +738,9 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 
 📊 *Statistics:*
-• Total Users: {stats.get('total_users', 0)}
-• Active API Keys: {stats.get('active_keys', 0)}
-• Total Requests: {stats.get('total_requests', 0)}
+Total Users: {stats.get('total_users', 0)}
+Active API Keys: {stats.get('active_keys', 0)}
+Total Requests: {stats.get('total_requests', 0)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1044,7 +1057,7 @@ Your API key is activated!
         try:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
-                text=f"🎁 Gift card redeemed!\n\nUser: @{username}\nCode: `{code}`\nPlan: {plan.upper()}",
+                text=f"🎁 Gift card redeemed!\n\nUser: @{username}\nCode: `{code}`\nPlan: {plan.UPPER()}",
                 parse_mode='Markdown'
             )
         except:
