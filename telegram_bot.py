@@ -32,16 +32,6 @@ except ImportError:
     payment_handler = None
     print("⚠️ Manual Payment not available")
 
-# NEW: Import API Key Tester
-try:
-    from api_key_tester import get_api_key_tester
-    api_tester = get_api_key_tester()
-    TESTER_AVAILABLE = True
-except ImportError:
-    TESTER_AVAILABLE = False
-    api_tester = None
-    print("⚠️ API Key Tester not available")
-
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -89,7 +79,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             <p><strong>AI Router:</strong> {'✅ Connected' if ai_router else '❌ Disabled'}</p>
             <p><strong>Notifications:</strong> {'✅ Enabled' if notifier else '❌ Disabled'}</p>
             <p><strong>Payments:</strong> {'✅ Manual' if payment_handler else '❌ Disabled'}</p>
-            <p><strong>API Tester:</strong> {'✅ Enabled' if api_tester else '❌ Disabled'}</p>
             <hr>
             <h2>📊 Statistics</h2>
             <p>Total Users: {stats.get('total_users', 0)}</p>
@@ -114,130 +103,3 @@ def run_health_server():
     server.serve_forever()
 
 # API Plans
-PLANS = {
-    'free': {
-        'name': 'Free Trial',
-        'price': 0,
-        'description': f'Experience our AI API free for {DEFAULT_FREE_EXPIRY_DAYS} days',
-        'features': [
-            '✅ 100 requests per hour',
-            '✅ English language support',
-            '✅ Basic AI responses',
-            '✅ Standard response time',
-            f'✅ {DEFAULT_FREE_EXPIRY_DAYS} days validity',
-            '✅ Community support'
-        ]
-    },
-    'basic': {
-        'name': 'Basic Plan',
-        'price': 99,
-        'description': 'Perfect for individuals and small projects',
-        'features': [
-            '✅ Unlimited API requests',
-            '✅ 8+ language support',
-            '✅ Multiple tone controls',
-            '✅ Conversation memory',
-            '✅ Sentiment analysis',
-            '✅ Keyword extraction',
-            '✅ Email support',
-            '✅ 30 days validity'
-        ]
-    },
-    'pro': {
-        'name': 'Pro Plan',
-        'price': 299,
-        'description': 'Best for businesses and power users',
-        'features': [
-            '✅ Everything in Basic',
-            '✅ Priority processing',
-            '✅ Content summarization',
-            '✅ Real-time streaming',
-            '✅ Advanced analytics',
-            '✅ Custom integrations',
-            '✅ Dedicated support',
-            '✅ 30 days validity'
-        ]
-    }
-}
-
-def is_admin(user_id):
-    return user_id == ADMIN_ID
-
-def format_expiry(expiry_date_str):
-    if not expiry_date_str:
-        return "No expiry (Permanent)"
-    try:
-        expiry = datetime.fromisoformat(expiry_date_str)
-        now = datetime.now()
-        if now > expiry:
-            return "⚠️ Expired"
-        days_left = (expiry - now).days
-        if days_left > 0:
-            return f"✅ {days_left} days remaining (expires {expiry.strftime('%d %b %Y')})"
-        return f"⚠️ {(expiry - now).seconds // 3600} hours remaining"
-    except:
-        return "Invalid date"
-
-async def get_ai_backend_info():
-    """Get premium AI backend branding"""
-    if ai_router:
-        status = ai_router.get_backend_status()
-        if 'perplexity' in status.get('available_backends', []):
-            return "🧠 *Powered by Perplexity + Claude*\nAdvanced search with Claude 3.5 Sonnet\n💎 Premium AI with real-time web search"
-        return "🧠 *Powered by Claude 3.5 Sonnet*\nAnthropic's flagship AI model\n💎 Enterprise-grade intelligence"
-    return "🧠 *Powered by Claude 3.5 Sonnet*\nPremium AI by Anthropic"
-
-# ============= NEW: API KEY TESTER COMMAND =============
-
-async def test_api_key_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Test an API key: /testapi <api_key>"""
-    if not TESTER_AVAILABLE or not api_tester:
-        await update.message.reply_text("❌ API key testing is not available.")
-        return
-    
-    if not context.args:
-        help_msg = """┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  🔍 *TEST YOUR API KEY*  ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
-*Usage:*
-`/testapi <your_api_key>`
-
-*Example:*
-`/testapi sk-ant-api03-abc...`
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-*What it checks:*
-✅ Database validation
-✅ API gateway connection
-✅ Chat endpoint functionality
-✅ Expiry status
-✅ Request count
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 Paste your API key after the command!"""
-        await update.message.reply_text(help_msg, parse_mode='Markdown')
-        return
-    
-    api_key = context.args[0].strip()
-    test_msg = await update.message.reply_text("🔍 *Testing your API key...*\n\nPlease wait, this may take 10-30 seconds.", parse_mode='Markdown')
-    
-    try:
-        result_text = await api_tester.quick_test(api_key)
-        await test_msg.edit_text(f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  🔍 *API KEY TEST RESULTS*  ┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
-{result_text}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 Use `/myapi` to view all your keys""", parse_mode='Markdown')
-    except Exception as e:
-        logger.error(f"API test error: {e}")
-        await test_msg.edit_text(f"❌ *Test Failed*\n\nError: {str(e)}\n\nPlease try again or contact support.", parse_mode='Markdown')
-
-# =============  REST OF THE CODE (UNCHANGED) =============
-
