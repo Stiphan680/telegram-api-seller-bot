@@ -310,7 +310,6 @@ async def payment_done_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
-    # Extract reference from callback data
     reference = query.data.replace('paid_', '')
     user_id = query.from_user.id
     username = query.from_user.username or query.from_user.first_name
@@ -319,14 +318,12 @@ async def payment_done_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("❌ Payment system unavailable!")
         return
     
-    # Get payment details
     payment = payment_handler.get_pending_payment(reference)
     
     if not payment:
         await query.edit_message_text("❌ Payment not found!")
         return
     
-    # Notify user
     await query.edit_message_text(
         f"""
 ✅ *Payment Notification Sent!*
@@ -351,7 +348,6 @@ Your payment has been reported to admin.
         parse_mode='Markdown'
     )
     
-    # Send notification to admin with verify button
     try:
         admin_notification = f"""
 🚨 *NEW PAYMENT NOTIFICATION!*
@@ -374,7 +370,6 @@ Your payment has been reported to admin.
 👇 *Click button below to verify*
         """
         
-        # Create verify button for admin
         admin_keyboard = [
             [InlineKeyboardButton("✅ Verify & Activate API", callback_data=f'verify_{reference}')],
             [InlineKeyboardButton("📊 View All Pending", callback_data='admin_pending')]
@@ -394,7 +389,7 @@ Your payment has been reported to admin.
         logger.error(f"❌ Failed to notify admin: {e}")
 
 async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin verifies payment from button - one click"""
+    """Admin verifies payment from button"""
     query = update.callback_query
     await query.answer()
     
@@ -402,7 +397,6 @@ async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer("⛔ Admin only!", show_alert=True)
         return
     
-    # Extract reference from callback data
     reference = query.data.replace('verify_', '')
     
     if not PAYMENT_AVAILABLE:
@@ -419,7 +413,6 @@ async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer(f"⚠️ Already verified!", show_alert=True)
         return
     
-    # Generate API key
     api_key = db.create_api_key(
         telegram_id=payment['user_id'],
         username=payment['username'],
@@ -429,10 +422,8 @@ async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     
     if api_key:
-        # Mark payment as verified
         payment_handler.mark_payment_verified(reference)
         
-        # Notify user
         try:
             await context.bot.send_message(
                 chat_id=payment['user_id'],
@@ -457,7 +448,6 @@ Your API key is activated!
         except:
             pass
         
-        # Update admin message
         await query.edit_message_text(
             f"""
 ✅ *Payment Verified Successfully!*
@@ -474,7 +464,6 @@ API Key: `{api_key}`
             parse_mode='Markdown'
         )
         
-        # Notify channel
         if notifier:
             try:
                 await notifier.notify_new_api_key(
@@ -638,6 +627,7 @@ async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - Main menu
 • `/myapi` - View keys
 • `/buy` - Plans
+• `/redeem CODE` - Use gift card
 
 *Features:*
 • AI Chat (Claude 3.5)
@@ -656,7 +646,53 @@ UPI: `{UPI_ID}`
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-# Admin Commands
+# ========== ADMIN COMMANDS ==========
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show admin panel"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    stats = db.get_stats()
+    
+    panel_text = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  👑 *ADMIN PANEL*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📊 *Statistics:*
+• Total Users: {stats.get('total_users', 0)}
+• Active API Keys: {stats.get('active_keys', 0)}
+• Total Requests: {stats.get('total_requests', 0)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*💳 Payment Commands:*
+`/pending` - View pending payments
+`/verify REF` - Verify payment
+
+*🎁 Gift Card Commands:*
+`/giftgen PLAN DAYS COUNT` - Generate gift cards
+`/giftlist` - View all gift cards
+`/giftdel CODE` - Delete gift card
+
+*🔑 API Management:*
+`/apilist` - View all API keys
+`/apicreate USER_ID PLAN DAYS` - Create API key
+`/apidel API_KEY` - Delete API key
+
+*📊 Stats:*
+`/stats` - Detailed statistics
+`/admin` - This panel
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👑 *Admin ID:* `{ADMIN_ID}`
+    """
+    
+    await update.message.reply_text(panel_text, parse_mode='Markdown')
+
 async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin verifies payment via command"""
     if not is_admin(update.effective_user.id):
@@ -685,7 +721,6 @@ async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ Already processed!")
         return
     
-    # Generate API key
     api_key = db.create_api_key(
         telegram_id=payment['user_id'],
         username=payment['username'],
@@ -697,7 +732,6 @@ async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if api_key:
         payment_handler.mark_payment_verified(reference)
         
-        # Notify user
         try:
             await context.bot.send_message(
                 chat_id=payment['user_id'],
@@ -761,6 +795,322 @@ async def pending_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     summary = payment_handler.get_admin_summary()
     await update.message.reply_text(summary, parse_mode='Markdown')
 
+# Gift Card System
+async def generate_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate gift cards - /giftgen PLAN DAYS COUNT"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "⚠️ Usage: `/giftgen PLAN DAYS COUNT`\n\nExample:\n`/giftgen basic 30 5`\n`/giftgen pro 60 10`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    plan = context.args[0].lower()
+    try:
+        days = int(context.args[1])
+        count = int(context.args[2])
+    except:
+        await update.message.reply_text("❌ Days and count must be numbers!")
+        return
+    
+    if plan not in ['free', 'basic', 'pro']:
+        await update.message.reply_text("❌ Invalid plan! Use: free, basic, or pro")
+        return
+    
+    if count > 50:
+        await update.message.reply_text("❌ Max 50 gift cards at once!")
+        return
+    
+    codes = []
+    for i in range(count):
+        code = db.create_gift_card(plan=plan, validity_days=days, created_by=ADMIN_ID)
+        if code:
+            codes.append(code)
+    
+    if codes:
+        codes_text = "\n".join([f"`{code}`" for code in codes])
+        message = f"""
+✅ *Gift Cards Generated!*
+
+Plan: {plan.upper()}
+Validity: {days} days
+Count: {len(codes)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*Codes:*
+{codes_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Users can redeem with:
+`/redeem CODE`
+        """
+        await update.message.reply_text(message, parse_mode='Markdown')
+    else:
+        await update.message.reply_text("❌ Failed to generate gift cards!")
+
+async def list_gift_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all gift cards"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    gifts = db.get_all_gift_cards()
+    
+    if not gifts:
+        await update.message.reply_text("❌ No gift cards found!")
+        return
+    
+    active = [g for g in gifts if not g.get('is_used')]
+    used = [g for g in gifts if g.get('is_used')]
+    
+    message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🎁 *GIFT CARDS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Total: {len(gifts)}
+Active: {len(active)}
+Used: {len(used)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*✅ Active Cards:*
+
+"""
+    
+    for idx, gift in enumerate(active[:10], 1):
+        message += f"{idx}. `{gift['code']}` - {gift['plan'].upper()} ({gift['validity_days']}d)\n"
+    
+    if len(active) > 10:
+        message += f"\n... and {len(active) - 10} more\n"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def delete_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete a gift card - /giftdel CODE"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "⚠️ Usage: `/giftdel CODE`\n\nExample:\n`/giftdel GIFT-ABC123`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    code = context.args[0]
+    result = db.delete_gift_card(code)
+    
+    if result:
+        await update.message.reply_text(f"✅ Gift card `{code}` deleted!", parse_mode='Markdown')
+    else:
+        await update.message.reply_text(f"❌ Gift card `{code}` not found!", parse_mode='Markdown')
+
+async def redeem_gift_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """User redeems gift card - /redeem CODE"""
+    user_id = update.effective_user.id
+    username = update.effective_user.username or update.effective_user.first_name
+    
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "⚠️ Usage: `/redeem CODE`\n\nExample:\n`/redeem GIFT-ABC123`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    code = context.args[0]
+    result = db.redeem_gift_card(code, user_id, username)
+    
+    if result['success']:
+        api_key = result['api_key']
+        plan = result['plan']
+        days = result['validity_days']
+        
+        message = f"""
+✅ *Gift Card Redeemed!*
+
+Your API key is activated!
+
+*Plan:* {plan.upper()}
+*API Key:*
+`{api_key}`
+
+*Valid for:* {days} days
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 Start using now!
+        """
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+        # Notify admin
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=f"🎁 Gift card redeemed!\n\nUser: @{username}\nCode: `{code}`\nPlan: {plan.upper()}",
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+    else:
+        await update.message.reply_text(f"❌ {result['error']}")
+
+# API Management
+async def list_all_apis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all API keys"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    all_keys = db.get_all_api_keys()
+    
+    if not all_keys:
+        await update.message.reply_text("❌ No API keys found!")
+        return
+    
+    active = [k for k in all_keys if k.get('is_active')]
+    inactive = [k for k in all_keys if not k.get('is_active')]
+    
+    message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🔑 *ALL API KEYS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Total: {len(all_keys)}
+Active: {len(active)}
+Inactive: {len(inactive)}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*✅ Active Keys (Latest 10):*
+
+"""
+    
+    for idx, key in enumerate(active[:10], 1):
+        plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+        expiry = "No expiry"
+        if key.get('expiry_date'):
+            try:
+                exp = datetime.fromisoformat(key['expiry_date'])
+                days = (exp - datetime.now()).days
+                expiry = f"{days}d left" if days > 0 else "Expired"
+            except:
+                pass
+        message += f"{idx}. {plan_emoji} `{key['api_key'][:20]}...` (@{key.get('username')}) - {expiry}\n"
+    
+    if len(active) > 10:
+        message += f"\n... and {len(active) - 10} more\n"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def create_api_key_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Create API key - /apicreate USER_ID PLAN DAYS"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "⚠️ Usage: `/apicreate USER_ID PLAN DAYS`\n\nExample:\n`/apicreate 123456 basic 30`\n`/apicreate 789012 pro 365`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    try:
+        user_id = int(context.args[0])
+        plan = context.args[1].lower()
+        days = int(context.args[2])
+    except:
+        await update.message.reply_text("❌ Invalid parameters!")
+        return
+    
+    if plan not in ['free', 'basic', 'pro']:
+        await update.message.reply_text("❌ Invalid plan! Use: free, basic, or pro")
+        return
+    
+    # Get username
+    try:
+        user = await context.bot.get_chat(user_id)
+        username = user.username or user.first_name
+    except:
+        username = f"user_{user_id}"
+    
+    api_key = db.create_api_key(
+        telegram_id=user_id,
+        username=username,
+        plan=plan,
+        expiry_days=days,
+        created_by_admin=True
+    )
+    
+    if api_key:
+        message = f"""
+✅ *API Key Created!*
+
+User ID: `{user_id}`
+Username: @{username}
+Plan: {plan.upper()}
+Validity: {days} days
+
+API Key:
+`{api_key}`
+
+✅ Key activated!
+        """
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+        # Notify user
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"""
+🎁 *Admin Gift!*
+
+You've been granted API access!
+
+*Plan:* {plan.upper()}
+*API Key:*
+`{api_key}`
+
+*Valid for:* {days} days
+
+🚀 Start using now!
+                """,
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+    else:
+        await update.message.reply_text("❌ Failed to create API key!")
+
+async def delete_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete API key - /apidel API_KEY"""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only!")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "⚠️ Usage: `/apidel API_KEY`\n\nExample:\n`/apidel sk-abc123...`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    api_key = context.args[0]
+    result = db.delete_api_key(api_key)
+    
+    if result:
+        await update.message.reply_text(f"✅ API key deleted!\n\n`{api_key}`", parse_mode='Markdown')
+    else:
+        await update.message.reply_text(f"❌ API key not found!\n\n`{api_key}`", parse_mode='Markdown')
+
 def main():
     health_thread = Thread(target=run_health_server, daemon=True)
     health_thread.start()
@@ -775,10 +1125,18 @@ def main():
     # User commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("myapi", my_api_key))
+    application.add_handler(CommandHandler("redeem", redeem_gift_card))
     
     # Admin commands
+    application.add_handler(CommandHandler("admin", admin_panel))
     application.add_handler(CommandHandler("verify", verify_payment))
     application.add_handler(CommandHandler("pending", pending_payments))
+    application.add_handler(CommandHandler("giftgen", generate_gift_cards))
+    application.add_handler(CommandHandler("giftlist", list_gift_cards))
+    application.add_handler(CommandHandler("giftdel", delete_gift_card))
+    application.add_handler(CommandHandler("apilist", list_all_apis))
+    application.add_handler(CommandHandler("apicreate", create_api_key_admin))
+    application.add_handler(CommandHandler("apidel", delete_api_key))
     
     # Callbacks
     application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
@@ -791,6 +1149,7 @@ def main():
     application.add_handler(CallbackQueryHandler(admin_pending_button, pattern='^admin_pending$'))
     
     logger.info("✅ Bot started successfully!")
+    logger.info("👑 Admin panel: /admin")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
