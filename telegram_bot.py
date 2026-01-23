@@ -59,7 +59,7 @@ else:
 
 # Admin ID
 ADMIN_ID = 5451167865
-DEFAULT_FREE_EXPIRY_DAYS = 7
+DEFAULT_FREE_EXPIRY_DAYS = 2  # Changed from 7 to 2 days
 
 # Health Check Server for Render FREE tier
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -103,3 +103,400 @@ def run_health_server():
     server.serve_forever()
 
 # API Plans
+PLANS = {
+    'free': {
+        'name': 'Free Trial',
+        'price': 0,
+        'description': f'Experience our AI API free for {DEFAULT_FREE_EXPIRY_DAYS} days',
+        'features': [
+            '✅ 100 requests per hour',
+            '✅ English language support',
+            '✅ Basic AI responses',
+            '✅ Standard response time',
+            f'✅ {DEFAULT_FREE_EXPIRY_DAYS} days validity',
+            '✅ Community support'
+        ]
+    },
+    'basic': {
+        'name': 'Basic Plan',
+        'price': 99,
+        'description': 'Perfect for individuals and small projects',
+        'features': [
+            '✅ Unlimited API requests',
+            '✅ 8+ language support',
+            '✅ Multiple tone controls',
+            '✅ Conversation memory',
+            '✅ Sentiment analysis',
+            '✅ Keyword extraction',
+            '✅ Email support',
+            '✅ 30 days validity'
+        ]
+    },
+    'pro': {
+        'name': 'Pro Plan',
+        'price': 299,
+        'description': 'Best for businesses and power users',
+        'features': [
+            '✅ Everything in Basic',
+            '✅ Priority processing',
+            '✅ Content summarization',
+            '✅ Real-time streaming',
+            '✅ Advanced analytics',
+            '✅ Custom integrations',
+            '✅ Dedicated support',
+            '✅ 30 days validity'
+        ]
+    }
+}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start command - shows welcome message"""
+    user = update.effective_user
+    
+    welcome_message = f"""
+🎉 *Welcome to Premium API Store!*
+
+Hello {user.first_name}! Get instant access to powerful AI features:
+
+🤖 *AI Chat* - Claude 3.5 Sonnet
+🎨 *Image Generation* - Flux AI
+🎬 *Video Generation* - Mochi AI  
+💻 *Code Expert* - Claude Assistant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎁 *Get {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial!*
+
+Try all features completely free!
+
+• `/start` - Show this menu
+• `/myapi` - View your API keys
+• `/buy` - Browse paid plans
+• `/redeem` - Redeem gift card
+• `/help` - Get support
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
+        [InlineKeyboardButton("💰 View Pricing", callback_data='buy_api'),
+         InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
+        [InlineKeyboardButton("❓ Help & Support", callback_data='help_support')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def select_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle plan selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    plan = query.data.replace('select_', '')
+    user_id = query.from_user.id
+    username = query.from_user.username or query.from_user.first_name
+    
+    # Check if user already has this plan
+    has_plan = db.has_active_plan(user_id, plan)
+    if has_plan:
+        await query.edit_message_text(
+            f"⚠️ *Already Active!*\n\nYou already have an active {plan.upper()} plan.\n\nUse `/myapi` to view your keys.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    if plan == 'free':
+        # Generate free trial API key (2 days)
+        await query.edit_message_text("⏳ *Generating your free API key...*\n\nPlease wait.", parse_mode='Markdown')
+        
+        api_key = db.create_api_key(user_id, username, plan, expiry_days=DEFAULT_FREE_EXPIRY_DAYS)
+        
+        if api_key:
+            success_message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ✅ *API KEY GENERATED*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Congratulations! Your API key is ready.
+
+*Your API Key:*
+`{api_key}`
+
+*Plan:* FREE TRIAL
+*Validity:* {DEFAULT_FREE_EXPIRY_DAYS} days
+*Features:* All premium features included!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💎 *You now have access to:*
+• AI Chat (Claude 3.5 Sonnet)
+• Image Generation (1024x1024)
+• Video Generation (up to 10s)
+• Code Expert Assistant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📌 Use `/myapi` to view all your keys!
+            """
+            
+            # Notify admin
+            if notifier:
+                try:
+                    await notifier.notify_new_api_key(
+                        username=username,
+                        user_id=user_id,
+                        plan=plan,
+                        backend=f"Free Trial ({DEFAULT_FREE_EXPIRY_DAYS}d)"
+                    )
+                except:
+                    pass
+            
+            keyboard = [
+                [InlineKeyboardButton("📊 View My Keys", callback_data='my_api')],
+                [InlineKeyboardButton("🔝 Upgrade Plan", callback_data='buy_api')],
+                [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(success_message, reply_markup=reply_markup, parse_mode='Markdown')
+        else:
+            await query.edit_message_text("❌ *Error!*\n\nFailed to generate API key. Please try again.", parse_mode='Markdown')
+    else:
+        # Show payment instructions for paid plans
+        payment_msg = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  💳 PAYMENT REQUIRED  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+Plan: {PLANS[plan]['name'].upper()}
+Price: ₹{PLANS[plan]['price']}/month
+
+Contact admin for payment:
+@Anonononononon
+        """
+        keyboard = [
+            [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Anonononononon")],
+            [InlineKeyboardButton("« Back", callback_data='buy_api')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(payment_msg, reply_markup=reply_markup)
+
+async def my_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's API keys"""
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        user_id = query.from_user.id
+        edit_message = True
+    else:
+        user_id = update.effective_user.id
+        edit_message = False
+    
+    keys = db.get_active_api_keys(user_id)
+    
+    if not keys:
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🔑 *YOUR API KEYS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+❌ No active API keys found.
+
+Get started with a {DEFAULT_FREE_EXPIRY_DAYS}-day free trial!
+        """
+        keyboard = [
+            [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
+            [InlineKeyboardButton("💰 View Plans", callback_data='buy_api')]
+        ]
+    else:
+        message = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  🔑 *YOUR API KEYS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+You have *{len(keys)}* active key(s):
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+        for idx, key in enumerate(keys, 1):
+            plan_emoji = {"free": "🆓", "basic": "💎", "pro": "⭐"}.get(key.get('plan'), "❓")
+            
+            # Calculate expiry
+            expiry_text = "No expiry"
+            if key.get('expiry_date'):
+                try:
+                    expiry = datetime.fromisoformat(key['expiry_date'])
+                    days_left = (expiry - datetime.now()).days
+                    if days_left > 0:
+                        expiry_text = f"{days_left} days remaining"
+                    else:
+                        expiry_text = "Expired"
+                except:
+                    pass
+            
+            message += f"{plan_emoji} *KEY {idx}: {key.get('plan', 'N/A').upper()}*\n"
+            message += f"`{key.get('api_key')}`\n"
+            message += f"{expiry_text}\n\n"
+            message += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        keyboard = [
+            [InlineKeyboardButton("🔝 Upgrade Plan", callback_data='buy_api')],
+            [InlineKeyboardButton("« Main Menu", callback_data='back_to_menu')]
+        ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if edit_message:
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def buy_api(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show pricing plans"""
+    query = update.callback_query
+    await query.answer()
+    
+    plans_text = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  💰 *PRICING PLANS*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+🆓 *FREE TRIAL*
+₹0 | {DEFAULT_FREE_EXPIRY_DAYS} Days
+
+• All premium features
+• AI Chat, Images, Videos
+• Code Expert included
+• No credit card required
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💎 *BASIC PLAN*
+₹99/month | Unlimited Requests
+
+• Unlimited API calls
+• All features included
+• Email support
+• 30 days validity
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⭐ *PRO PLAN*
+₹299/month | Priority + Everything
+
+• Priority processing
+• Dedicated support
+• Advanced features
+• 30 days validity
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👉 Select a plan below:
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton(f"🎁 Start {DEFAULT_FREE_EXPIRY_DAYS}-Day Free Trial", callback_data='select_free')],
+        [InlineKeyboardButton("💎 Get Basic - ₹99", callback_data='select_basic')],
+        [InlineKeyboardButton("⭐ Get Pro - ₹299", callback_data='select_pro')],
+        [InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(plans_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Go back to main menu"""
+    query = update.callback_query
+    await query.answer()
+    
+    menu_text = f"""
+🌟 *Welcome to Premium API Store!*
+
+Get instant access to powerful AI:
+
+🤖 AI Chat | 🎨 Images | 🎬 Videos | 💻 Code
+
+🎁 Try free for {DEFAULT_FREE_EXPIRY_DAYS} days!
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("🎁 Get Free Trial", callback_data='select_free')],
+        [InlineKeyboardButton("💰 View Pricing", callback_data='buy_api'),
+         InlineKeyboardButton("📊 My Keys", callback_data='my_api')],
+        [InlineKeyboardButton("❓ Help & Support", callback_data='help_support')]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(menu_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def help_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show help and support info"""
+    query = update.callback_query
+    await query.answer()
+    
+    help_text = f"""
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ❓ *HELP & SUPPORT*  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+*📚 Commands:*
+
+• `/start` - Main menu
+• `/myapi` - View API keys
+• `/buy` - Browse plans
+• `/redeem <code>` - Use gift card
+• `/help` - This help page
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*💎 Features:*
+
+• AI Chat (Claude 3.5 Sonnet)
+• Image Generation (1024x1024)
+• Video Generation (up to 10s)
+• Code Expert Assistant
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+*💬 Support:*
+
+Contact: @Anonononononon
+Response: 2-4 hours
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎁 Start your {DEFAULT_FREE_EXPIRY_DAYS}-day free trial now!
+    """
+    
+    keyboard = [[InlineKeyboardButton("« Back to Menu", callback_data='back_to_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+def main():
+    """Start the bot"""
+    # Start health check server
+    health_thread = Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    logger.info("🌐 Health check server started")
+    
+    logger.info("🚀 Starting Bot...")
+    logger.info(f"🎁 Free Trial: {DEFAULT_FREE_EXPIRY_DAYS} days")
+    logger.info(f"🤖 AI: {'Enabled' if ai_router else 'Disabled'}")
+    logger.info(f"📣 Notifications: {'Enabled' if notifier else 'Disabled'}")
+    
+    application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+    
+    # Command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("myapi", my_api_key))
+    
+    # Callback handlers
+    application.add_handler(CallbackQueryHandler(buy_api, pattern='^buy_api$'))
+    application.add_handler(CallbackQueryHandler(select_plan, pattern='^select_'))
+    application.add_handler(CallbackQueryHandler(my_api_key, pattern='^my_api$'))
+    application.add_handler(CallbackQueryHandler(back_to_menu, pattern='^back_to_menu$'))
+    application.add_handler(CallbackQueryHandler(help_support, pattern='^help_support$'))
+    
+    logger.info("✅ Bot started successfully!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
+if __name__ == '__main__':
+    main()
