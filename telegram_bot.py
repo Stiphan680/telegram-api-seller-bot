@@ -386,7 +386,7 @@ Your payment has been reported to admin.
         parse_mode='Markdown'
     )
     
-    # Notify system monitor
+    # Notify system monitor (channel notification)
     if system_monitor:
         try:
             await system_monitor.notify_payment_received(
@@ -397,30 +397,31 @@ Your payment has been reported to admin.
                 reference=reference
             )
         except Exception as e:
-            logger.error(f"Failed to notify payment: {e}")
+            logger.error(f"Failed to notify payment to channel: {e}")
     
+    # Send direct notification to admin
     try:
-        # Simplified admin notification without bullets
+        # Simple clean format without complex markdown
         admin_notification = f"""
-🚨 *NEW PAYMENT NOTIFICATION*
+🚨 NEW PAYMENT NOTIFICATION
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👤 *User Details*
+USER DETAILS
 Username: @{username}
-User ID: `{user_id}`
+User ID: {user_id}
 
-💳 *Payment Details*
+PAYMENT DETAILS  
 Plan: {payment['plan'].upper()}
 Amount: ₹{payment['amount']}
-Reference: `{reference}`
+Reference: {reference}
 
-📅 *Time*
+TIME
 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-👇 Click button below to verify
+Click button below to verify payment
         """
         
         admin_keyboard = [
@@ -432,7 +433,6 @@ Reference: `{reference}`
         await context.bot.send_message(
             chat_id=ADMIN_ID,
             text=admin_notification,
-            parse_mode='Markdown',
             reply_markup=admin_reply_markup
         )
         
@@ -440,11 +440,21 @@ Reference: `{reference}`
         
     except Exception as e:
         logger.error(f"❌ Failed to notify admin: {e}")
-        if system_monitor:
-            try:
-                await system_monitor.notify_error("Admin Notification", str(e), "Payment notification")
-            except:
-                pass
+        # Try sending simple plain text as fallback
+        try:
+            fallback_msg = f"🚨 NEW PAYMENT\n\nUser: @{username} (ID: {user_id})\nPlan: {payment['plan'].upper()}\nAmount: ₹{payment['amount']}\nRef: {reference}\n\nUse /verify {reference} to activate"
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=fallback_msg
+            )
+            logger.info("✅ Sent fallback notification to admin")
+        except Exception as e2:
+            logger.error(f"❌ Fallback notification also failed: {e2}")
+            if system_monitor:
+                try:
+                    await system_monitor.notify_error("Admin Notification", str(e), "Payment notification failed")
+                except:
+                    pass
 
 async def verify_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin verifies payment from button"""
@@ -1057,7 +1067,7 @@ Your API key is activated!
         try:
             await context.bot.send_message(
                 chat_id=ADMIN_ID,
-                text=f"🎁 Gift card redeemed!\n\nUser: @{username}\nCode: `{code}`\nPlan: {plan.UPPER()}",
+                text=f"🎁 Gift card redeemed!\n\nUser: @{username}\nCode: `{code}`\nPlan: {plan.upper()}",
                 parse_mode='Markdown'
             )
         except:
